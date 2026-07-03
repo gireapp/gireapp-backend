@@ -55,3 +55,7 @@ blob-report/
 *.pdf
 
 .agents/rules/security-audit-gireapp.md
+
+# Security-sensitive docs (NEVER commit)
+docs/security-remediation-plan.md
+docs/jwt-secret-rotation-runbook.md
