@@ -58,6 +58,7 @@ blob-report/
 
 # Security-sensitive docs (NEVER commit)
 docs/security-remediation-plan.md
+GIREAPP BRAND DESIGN GUIDELINES.md
 docs/jwt-secret-rotation-runbook.md
 backend/.env.example
 docs/BACKEND_BUILD_PROMPT.md
