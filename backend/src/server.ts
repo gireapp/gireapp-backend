@@ -42,8 +42,10 @@ app.get("/api/health", (req, res) => {
 
 import authRouter from "./routes/auth.routes";
 import courseRouter from "./routes/course.routes";
+import dashboardRouter from "./routes/dashboard.routes";
 app.use("/api/auth", authRouter);
 app.use("/api/courses", courseRouter);
+app.use("/api/dashboard", dashboardRouter);
 
 // ── Error Handling (Phase 3 — MUST be after all routes) ──
 app.use(notFoundHandler);
