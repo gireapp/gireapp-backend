@@ -4,26 +4,46 @@ export declare const registerSchema: z.ZodEffects<z.ZodObject<{
     email: z.ZodEffects<z.ZodString, string, string>;
     password: z.ZodString;
     confirmPassword: z.ZodString;
+    track: z.ZodOptional<z.ZodString>;
+    department: z.ZodOptional<z.ZodString>;
+    level: z.ZodOptional<z.ZodString>;
+    focusArea: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     name: string;
     email: string;
     password: string;
     confirmPassword: string;
+    track?: string | undefined;
+    department?: string | undefined;
+    level?: string | undefined;
+    focusArea?: string | undefined;
 }, {
     name: string;
     email: string;
     password: string;
     confirmPassword: string;
+    track?: string | undefined;
+    department?: string | undefined;
+    level?: string | undefined;
+    focusArea?: string | undefined;
 }>, {
     name: string;
     email: string;
     password: string;
     confirmPassword: string;
+    track?: string | undefined;
+    department?: string | undefined;
+    level?: string | undefined;
+    focusArea?: string | undefined;
 }, {
     name: string;
     email: string;
     password: string;
     confirmPassword: string;
+    track?: string | undefined;
+    department?: string | undefined;
+    level?: string | undefined;
+    focusArea?: string | undefined;
 }>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export declare const loginSchema: z.ZodObject<{
@@ -72,20 +92,20 @@ export declare const onboardingSchema: z.ZodEffects<z.ZodObject<{
     department: z.ZodString;
     moodTheme: z.ZodDefault<z.ZodEnum<["calm", "focused", "energized", "relaxed"]>>;
 }, "strip", z.ZodTypeAny, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     moodTheme: "calm" | "focused" | "energized" | "relaxed";
 }, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     moodTheme?: "calm" | "focused" | "energized" | "relaxed" | undefined;
 }>, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     moodTheme: "calm" | "focused" | "energized" | "relaxed";
 }, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     moodTheme?: "calm" | "focused" | "energized" | "relaxed" | undefined;
 }>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
@@ -145,8 +165,8 @@ export declare const createCourseSchema: z.ZodObject<{
         }[];
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     title: string;
     description: string;
     published: boolean;
@@ -164,8 +184,8 @@ export declare const createCourseSchema: z.ZodObject<{
     }[];
     thumbnailUrl?: string | null | undefined;
 }, {
-    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     department: string;
+    academicLevel: "SECONDARY" | "TERTIARY" | "PROFESSIONAL";
     title: string;
     description: string;
     modules: {

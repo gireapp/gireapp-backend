@@ -45,7 +45,7 @@ interface LogEntry {
  */
 function maskEmail(email: string): string {
   const [local, domain] = email.split('@');
-  if (!domain) return '[REDACTED_EMAIL]';
+  if (!local || !domain) return '[REDACTED_EMAIL]';
   return `${local[0]}***@${domain}`;
 }
 

@@ -8,7 +8,8 @@ import { requestLogger } from "./middlewares/requestLogger.middleware";
 import { notFoundHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.middleware";
 import { logger } from "./utils/logger";
 
-dotenv.config();
+// .env.local wins over .env; Prisma CLI (migrate/db push) only reads .env
+dotenv.config({ path: [".env.local", ".env"] });
 
 const app = express();
 const PORT = process.env.PORT || 8000;

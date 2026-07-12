@@ -22,6 +22,10 @@ export const registerSchema = z.object({
         .max(128, 'Password must be under 128 characters')
         .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain at least one uppercase letter, one lowercase letter, and one number'),
     confirmPassword: z.string(),
+    track: z.string().optional(),
+    department: z.string().optional(),
+    level: z.string().optional(),
+    focusArea: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
     path: ['confirmPassword'],

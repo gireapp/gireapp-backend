@@ -28,6 +28,10 @@ export const registerSchema = z.object({
       'Password must contain at least one uppercase letter, one lowercase letter, and one number'
     ),
   confirmPassword: z.string(),
+  track: z.string().optional(),
+  department: z.string().optional(),
+  level: z.string().optional(),
+  focusArea: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],

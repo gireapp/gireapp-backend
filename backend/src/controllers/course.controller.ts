@@ -4,11 +4,11 @@ import { logger } from '../utils/logger';
 
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { courseId, lessonId } = req.params;
+    const { courseId, lessonId } = req.params as { courseId: string; lessonId: string };
     // user is attached by an auth middleware (we'll need to create this middleware)
     const userId = (req as any).user?.userId;
 
-    if (!userId) {
+    if (!userId || !courseId || !lessonId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
@@ -49,6 +49,10 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
     }
 
     const currentLesson = allLessons[currentIndex];
+    if (!currentLesson) {
+      res.status(404).json({ error: 'Lesson not found' });
+      return;
+    }
     const nextLesson = allLessons[currentIndex + 1] || null;
     const prevLesson = allLessons[currentIndex - 1] || null;
     const currentModule = enrolment.course.modules.find((m) => m.id === currentLesson.moduleId) || null;
@@ -62,7 +66,7 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
         module: currentModule,
         allLessonsCount: allLessons.length,
         currentIndex,
-        isCompleted: currentLesson.progress.length > 0 && currentLesson.progress[0].completed
+        isCompleted: currentLesson.progress[0]?.completed ?? false
       }
     });
   } catch (error) {

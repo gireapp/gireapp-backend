@@ -83,14 +83,17 @@ export const globalErrorHandler = (
     });
   }
 
+  // body-parser errors carry a `type` discriminator not present on Error
+  const bodyParserErrorType = (err as Error & { type?: string }).type;
+
   // ── Detect JSON parse errors (malformed request body) ──
-  if (err.type === 'entity.parse.failed') {
+  if (bodyParserErrorType === 'entity.parse.failed') {
     statusCode = 400;
     clientMessage = 'Malformed request body. Please send valid JSON.';
   }
 
   // ── Detect payload too large ──
-  if (err.type === 'entity.too.large') {
+  if (bodyParserErrorType === 'entity.too.large') {
     statusCode = 413;
     clientMessage = 'Request payload is too large.';
   }
