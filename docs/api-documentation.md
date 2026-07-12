@@ -32,7 +32,11 @@ Basic endpoint to check if the backend service is running.
 ## 2. Authentication
 
 ### `POST /api/auth/register`
-Creates a new user account. If the signup wizard's `track` and `department` are provided, the onboarding selection is persisted (`track` maps `Secondary→SECONDARY`, `Tertiary→TERTIARY`, `Professional→PROFESSIONAL`). Registration is **auto-login**: the response sets the `token` cookie and returns the JWT in the body, same shape as login.
+Creates a new user account. If the signup wizard's `track` and `department` are provided, the onboarding selection is persisted (`track` maps `Secondary→SECONDARY`, `Tertiary→TERTIARY`, `Professional→PROFESSIONAL`).
+
+A verification email is sent on signup; the account cannot log in until the email is verified (login returns `403`). **No session is issued at registration** — the user verifies via `POST /api/auth/verify-email`, then logs in.
+
+> **Dev/testing:** setting `SKIP_EMAIL_VERIFICATION=true` on the backend auto-verifies new accounts and makes registration auto-login — the response then also contains `token` and sets the `token` cookie (same shape as login). Never enable this in production.
 
 **Request Body:**
 ```json
@@ -50,10 +54,9 @@ Creates a new user account. If the signup wizard's `track` and `department` are 
 `track`, `department`, `level`, and `focusArea` are optional. `level` and `focusArea` are currently accepted but not persisted.
 
 **Success Response:** `201 Created`
-*(The JWT is also set in an `HttpOnly` cookie named `token`)*
 ```json
 {
-  "message": "Account created successfully.",
+  "message": "Account created successfully. Please check your inbox to verify your email address.",
   "user": {
     "id": "cuid-string",
     "name": "Jane Doe",
@@ -65,8 +68,7 @@ Creates a new user account. If the signup wizard's `track` and `department` are 
     "points": 0,
     "image": null,
     "isOnboardingComplete": true
-  },
-  "token": "<jwt>"
+  }
 }
 ```
 

@@ -29,6 +29,10 @@ export const TRACK_TO_ACADEMIC_LEVEL: Record<string, AcademicLevel> = {
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Dev/testing escape hatch: auto-verifies new accounts and auto-logs-in on register.
+// Must NEVER be set in production — real users must verify their email.
+const SKIP_EMAIL_VERIFICATION = process.env.SKIP_EMAIL_VERIFICATION === 'true';
+
 const sessionUserSelect = {
   id: true,
   name: true,
@@ -122,32 +126,44 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         department: department || null,
         verificationToken: verification.hash,
         verificationExpiry: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
-        emailVerified: new Date(), // TEMPORARY BYPASS FOR TEAM TESTING
+        emailVerified: SKIP_EMAIL_VERIFICATION ? new Date() : null,
       },
       select: sessionUserSelect,
     });
 
-    // TEMPORARILY COMMENTED OUT FOR TEAM TESTING (bypass above)
-    // sendVerificationEmail(email, user.name, verification.raw).catch((err) => {
-    //   console.error('[GIREAPP] Failed to send verification email:', err);
-    // });
-
-    // ── 8. Auto-login: sign JWT, set cookie, return { user, token } ──
     const sessionUser = toSessionUser(user);
-    const token = signSessionToken({
-      userId: user.id,
-      role: user.role,
-      email: user.email,
-      academicLevel: user.academicLevel,
-      department: user.department,
-      isOnboardingComplete: sessionUser.isOnboardingComplete,
+
+    // ── 8. Dev flag on: auto-login with { user, token } ──
+    if (SKIP_EMAIL_VERIFICATION) {
+      const token = signSessionToken({
+        userId: user.id,
+        role: user.role,
+        email: user.email,
+        academicLevel: user.academicLevel,
+        department: user.department,
+        isOnboardingComplete: sessionUser.isOnboardingComplete,
+      });
+
+      setSessionCookie(res, token);
+      res.status(201).json({
+        message: 'Account created successfully.',
+        user: sessionUser,
+        token,
+      });
+      return;
+    }
+
+    // ── 8. Production: send verification email; no session until verified ──
+    sendVerificationEmail(email, user.name, verification.raw).catch((err) => {
+      logger.error('Failed to send verification email', {
+        errorMessage: (err as Error).message,
+        userId: user.id,
+      });
     });
 
-    setSessionCookie(res, token);
     res.status(201).json({
-      message: 'Account created successfully.',
+      message: 'Account created successfully. Please check your inbox to verify your email address.',
       user: sessionUser,
-      token,
     });
   } catch (error) {
     logger.error('Registration error', {

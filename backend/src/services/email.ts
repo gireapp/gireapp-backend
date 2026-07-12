@@ -20,7 +20,9 @@ function getResend(): Resend {
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'GIREAPP <noreply@gireapp.com>';
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+// Links in emails must point at the deployed frontend
+const APP_URL =
+  process.env.FRONTEND_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
 // ── Email Templates ──
 
