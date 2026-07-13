@@ -17,11 +17,17 @@ async function main() {
 
   let adminId;
   if (!existingAdmin) {
+    const adminPassword = process.env.ADMIN_SEED_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      throw new Error(
+        'ADMIN_SEED_PASSWORD env var (min 12 chars) is required to seed the admin user. Never hardcode it.'
+      );
+    }
     const adminUser = await prisma.user.create({
       data: {
         name: 'System Admin',
         email: adminEmail,
-        passwordHash: await hash('AdminPassword123!', 12),
+        passwordHash: await hash(adminPassword, 12),
         role: 'ADMIN',
         emailVerified: new Date(),
       },

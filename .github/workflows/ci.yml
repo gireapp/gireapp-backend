@@ -22,14 +22,20 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Audit dependencies
+      run: npm audit --audit-level=high
+
+    - name: Build shared package
+      run: npm run build --workspace=shared
+
     - name: Prisma Generate
-      run: npm run db:generate
+      run: npm run db:generate --workspace=backend
 
     - name: Type Check
-      run: npm run type-check
+      run: npm run type-check --workspace=backend
 
     - name: Build
-      run: npm run build
+      run: npm run build --workspace=backend
 
     - name: Run Unit Tests
-      run: npm run test
+      run: npm run test --workspace=backend

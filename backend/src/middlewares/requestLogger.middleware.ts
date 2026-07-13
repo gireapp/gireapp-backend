@@ -5,6 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
+import type { AuthenticatedRequest } from './auth.middleware';
 
 /**
  * Paths to exclude from request logging (e.g., health checks generate noise).
@@ -35,7 +36,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
   res.on('finish', () => {
     const duration = Date.now() - start;
     const statusCode = res.statusCode;
-    const userId = (req as any).user?.userId || 'anonymous';
+    const userId = (req as Partial<AuthenticatedRequest>).user?.userId || 'anonymous';
 
     const logData = {
       method: req.method,

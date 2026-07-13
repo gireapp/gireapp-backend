@@ -24,6 +24,16 @@ const FROM = process.env.EMAIL_FROM ?? 'GIREAPP <noreply@gireapp.com>';
 const APP_URL =
   process.env.FRONTEND_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
+/** Escape user-controlled values before interpolating them into email HTML (BE-SEC-M2) */
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
 // ── Email Templates ──
 
 interface SendEmailOptions {
@@ -81,7 +91,7 @@ export async function sendVerificationEmail(
           <h1 style="color: #3730A3; font-size: 28px; margin: 0;">GIREAPP</h1>
           <p style="color: #64748B; font-size: 14px; margin-top: 4px;">Get It Right Edu App</p>
         </div>
-        <h2 style="color: #0F172A; font-size: 20px;">Welcome, ${name}!</h2>
+        <h2 style="color: #0F172A; font-size: 20px;">Welcome, ${escapeHtml(name)}!</h2>
         <p style="color: #334155; font-size: 16px; line-height: 1.6;">
           Thank you for joining GIREAPP. Please verify your email address to start your learning journey.
         </p>
@@ -120,7 +130,7 @@ export async function sendPasswordResetEmail(
         <div style="text-align: center; margin-bottom: 32px;">
           <h1 style="color: #3730A3; font-size: 28px; margin: 0;">GIREAPP</h1>
         </div>
-        <h2 style="color: #0F172A; font-size: 20px;">Hi ${name},</h2>
+        <h2 style="color: #0F172A; font-size: 20px;">Hi ${escapeHtml(name)},</h2>
         <p style="color: #334155; font-size: 16px; line-height: 1.6;">
           We received a request to reset your password. Click the button below to set a new password.
         </p>
@@ -159,12 +169,12 @@ export async function sendContactFormEmail(
       <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
         <h2 style="color: #3730A3; font-size: 20px;">New Mentorship Request</h2>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">From:</td><td style="padding: 8px;">${fromName}</td></tr>
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Email:</td><td style="padding: 8px;">${fromEmail}</td></tr>
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Subject:</td><td style="padding: 8px;">${subject}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">From:</td><td style="padding: 8px;">${escapeHtml(fromName)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Email:</td><td style="padding: 8px;">${escapeHtml(fromEmail)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Subject:</td><td style="padding: 8px;">${escapeHtml(subject)}</td></tr>
         </table>
         <div style="background: #F1F5F9; padding: 16px; border-radius: 8px; margin-top: 16px;">
-          <p style="color: #334155; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${message}</p>
+          <p style="color: #334155; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(message)}</p>
         </div>
       </div>
     `,

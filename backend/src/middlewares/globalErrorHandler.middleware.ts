@@ -5,6 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { logger, generateReferenceId } from '../utils/logger';
+import type { AuthenticatedRequest } from './auth.middleware';
 
 /**
  * Known operational error class.
@@ -79,7 +80,7 @@ export const globalErrorHandler = (
       message: err.message,
       method: req.method,
       path: req.originalUrl,
-      userId: (req as any).user?.userId || 'anonymous',
+      userId: (req as Partial<AuthenticatedRequest>).user?.userId || 'anonymous',
     });
   }
 

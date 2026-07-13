@@ -7,12 +7,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Response } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AcademicLevel, Role } from '@gireapp/shared';
-
-if (!process.env.AUTH_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('AUTH_SECRET environment variable is required in production');
-}
-
-const JWT_SECRET = process.env.AUTH_SECRET || 'fallback-dev-secret-change-me';
+import { JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE } from '../config/env';
 
 export interface SessionClaims {
   userId: string;
@@ -25,7 +20,12 @@ export interface SessionClaims {
 
 /** Sign the session JWT — payload must exactly match the shared `JwtPayload` contract */
 export function signSessionToken(claims: SessionClaims): string {
-  return jwt.sign(claims, JWT_SECRET, { expiresIn: '24h', subject: claims.userId });
+  return jwt.sign(claims, JWT_SECRET, {
+    expiresIn: '24h',
+    subject: claims.userId,
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
 }
 
 /** Set the httpOnly session cookie (frontend also reads `token` from the JSON body) */

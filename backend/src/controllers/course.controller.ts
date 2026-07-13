@@ -1,12 +1,12 @@
 import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
 import { logger } from '../utils/logger';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId, lessonId } = req.params as { courseId: string; lessonId: string };
-    // user is attached by an auth middleware (we'll need to create this middleware)
-    const userId = (req as any).user?.userId;
+    const userId = (req as AuthenticatedRequest).user?.userId;
 
     if (!userId || !courseId || !lessonId) {
       res.status(401).json({ error: 'Unauthorized' });
@@ -74,7 +74,7 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
       errorMessage: (error as Error).message,
       courseId: req.params.courseId,
       lessonId: req.params.lessonId,
-      userId: (req as any).user?.userId || 'anonymous',
+      userId: (req as AuthenticatedRequest).user?.userId || 'anonymous',
     });
     res.status(500).json({ error: 'Internal server error' });
   }

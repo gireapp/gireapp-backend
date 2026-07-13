@@ -1,11 +1,14 @@
 // ─────────────────────────────────────────────────
 // GIREAPP — Input Sanitisation Utility (BE-SEC-005)
-// Strips SQL injection patterns, escapes XSS tags
+// Escapes XSS tags; flags (but does not rewrite) SQL-looking input
 // ─────────────────────────────────────────────────
 
 /**
- * SQL injection patterns to strip from user input.
- * Matches common attack vectors: UNION SELECT, DROP TABLE, etc.
+ * SQL injection patterns used for threat *detection* only (see `detectThreats`).
+ * Not used to rewrite input — Prisma parameterises all queries, so there is
+ * no injection risk to mitigate here, and stripping these tokens from
+ * sanitizeString/sanitizeRichText corrupts legitimate content (e.g. a name
+ * or message that happens to contain "select" or "delete").
  */
 const SQL_INJECTION_PATTERNS = [
   /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|TRUNCATE|DECLARE|CAST)\b\s)/gi,
@@ -36,17 +39,12 @@ const XSS_PATTERNS = [
 
 /**
  * Sanitise a single string value:
- * 1. Strip SQL injection patterns
+ * 1. Strip XSS patterns
  * 2. Escape XSS-relevant HTML entities
  * 3. Trim whitespace
  */
 export function sanitizeString(input: string): string {
   let sanitized = input;
-
-  // Strip SQL injection patterns
-  for (const pattern of SQL_INJECTION_PATTERNS) {
-    sanitized = sanitized.replace(pattern, '');
-  }
 
   // Strip XSS patterns
   for (const pattern of XSS_PATTERNS) {
@@ -70,11 +68,6 @@ export function sanitizeString(input: string): string {
  */
 export function sanitizeRichText(input: string): string {
   let sanitized = input;
-
-  // Strip SQL injection patterns
-  for (const pattern of SQL_INJECTION_PATTERNS) {
-    sanitized = sanitized.replace(pattern, '');
-  }
 
   // Strip only dangerous XSS patterns (keep markdown-safe HTML like <em>, <strong>)
   for (const pattern of XSS_PATTERNS) {

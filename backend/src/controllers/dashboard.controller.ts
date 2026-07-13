@@ -4,16 +4,16 @@ import type {
   ActivityItem,
   CourseCard,
   DashboardOverview,
-  JwtPayload,
   SessionUser,
 } from '@gireapp/shared';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 
 const RECENT_ACTIVITY_LIMIT = 10;
 
 export const getDashboard = async (req: Request, res: Response): Promise<void> => {
   try {
-    const payload = (req as any).user as JwtPayload;
+    const payload = (req as AuthenticatedRequest).user;
     const userId = payload.userId;
 
     const [user, enrolments, badgeCount, recentLessons, recentAttempts, recentBadges] =

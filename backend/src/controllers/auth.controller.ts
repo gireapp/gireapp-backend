@@ -8,7 +8,7 @@ import {
   resetPasswordSchema,
   onboardingSchema,
 } from '@gireapp/shared';
-import type { AcademicLevel, JwtPayload, SessionUser } from '@gireapp/shared';
+import type { AcademicLevel, SessionUser } from '@gireapp/shared';
 import { sanitizeObject, detectThreats } from '../utils/sanitize';
 import {
   signSessionToken,
@@ -16,6 +16,7 @@ import {
   generateOneTimeToken,
   hashToken,
 } from '../utils/token';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email';
 import { logger } from '../utils/logger';
 
@@ -28,6 +29,8 @@ export const TRACK_TO_ACADEMIC_LEVEL: Record<string, AcademicLevel> = {
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
 // Dev/testing escape hatch: auto-verifies new accounts and auto-logs-in on register.
 // Must NEVER be set in production — real users must verify their email.
@@ -195,7 +198,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     // ── 3. Find user ──
     const user = await prisma.user.findUnique({
       where: { email, deletedAt: null },
-      select: { ...sessionUserSelect, passwordHash: true, emailVerified: true },
+      select: {
+        ...sessionUserSelect,
+        passwordHash: true,
+        emailVerified: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+      },
     });
 
     // Unified error message to prevent user enumeration (OWASP)
@@ -207,24 +216,54 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // ── 4. Check email verification ──
+    // ── 4. Account lockout (BE-SEC-H3) ──
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      logger.security('Login blocked — account locked', {
+        userId: user.id,
+        ip: req.ip,
+        lockedUntil: user.lockedUntil,
+      });
+      res.status(429).json({ error: 'Too many failed login attempts. Please try again later.' });
+      return;
+    }
+
+    // ── 5. Check email verification ──
     if (!user.emailVerified) {
       res.status(403).json({ error: 'Please verify your email address before logging in. Check your inbox.' });
       return;
     }
 
-    // ── 5. Verify password ──
+    // ── 6. Verify password ──
     const isValid = await compare(password, user.passwordHash);
     if (!isValid) {
+      const attempts = user.failedLoginAttempts + 1;
+      const shouldLock = attempts >= MAX_FAILED_LOGIN_ATTEMPTS;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: shouldLock ? 0 : attempts,
+          lockedUntil: shouldLock ? new Date(Date.now() + LOCKOUT_DURATION_MS) : null,
+        },
+      });
       logger.security('Failed login attempt — wrong password', {
         userId: user.id,
         ip: req.ip,
+        attempts,
+        locked: shouldLock,
       });
       res.status(401).json({ error: 'Invalid email or password.' });
       return;
     }
 
-    // ── 6. Sign JWT (24h expiry), set cookie, return { user, token } ──
+    // Reset lockout state on a successful login
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
+
+    // ── 7. Sign JWT (24h expiry), set cookie, return { user, token } ──
     const { passwordHash: _ph, emailVerified: _ev, ...profile } = user;
     const sessionUser = toSessionUser(profile);
     const token = signSessionToken({
@@ -259,7 +298,7 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
 
 export const me = async (req: Request, res: Response): Promise<void> => {
   try {
-    const payload = (req as any).user as JwtPayload;
+    const payload = (req as AuthenticatedRequest).user;
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, deletedAt: null },
@@ -435,7 +474,7 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
 
 export const onboarding = async (req: Request, res: Response): Promise<void> => {
   try {
-    const payload = (req as any).user as JwtPayload;
+    const payload = (req as AuthenticatedRequest).user;
 
     const sanitizedBody = screenBody(req, res, 'Onboarding');
     if (sanitizedBody === null) return;

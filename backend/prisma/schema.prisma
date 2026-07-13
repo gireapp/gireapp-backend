@@ -64,10 +64,15 @@ model User {
   resetToken        String?   @unique
   resetTokenExpiry  DateTime?
 
+  // Brute-force protection (per-account lockout)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
   // Relations
   enrolments    Enrolment[]
   quizAttempts  QuizAttempt[]
   badges        UserBadge[]
+  lessonProgress LessonProgress[]
 
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -174,6 +179,7 @@ model LessonProgress {
   completed Boolean  @default(true)
 
   // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
