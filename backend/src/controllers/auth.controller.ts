@@ -264,7 +264,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // ── 7. Sign JWT (24h expiry), set cookie, return { user, token } ──
-    const { passwordHash: _ph, emailVerified: _ev, ...profile } = user;
+    const {
+      passwordHash: _ph,
+      emailVerified: _ev,
+      failedLoginAttempts: _fla,
+      lockedUntil: _lu,
+      ...profile
+    } = user;
     const sessionUser = toSessionUser(profile);
     const token = signSessionToken({
       userId: user.id,
