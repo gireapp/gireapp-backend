@@ -63,3 +63,6 @@ docs/jwt-secret-rotation-runbook.md
 backend/.env.example
 docs/BACKEND_BUILD_PROMPT.md
 backend/.env.example
+mvp.txt
+trd.txt
+prd.txt

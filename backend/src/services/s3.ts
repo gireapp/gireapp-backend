@@ -11,16 +11,18 @@ let s3Client: S3Client | null = null;
 function getS3(): S3Client {
   if (s3Client) return s3Client;
 
-  const region = process.env.AWS_REGION;
+  const region = process.env.AWS_REGION || 'auto'; // 'auto' is used by Cloudflare R2
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const endpoint = process.env.S3_ENDPOINT;
 
-  if (!region || !accessKeyId || !secretAccessKey) {
-    throw new Error('[GIREAPP] AWS S3 credentials not configured');
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error('[GIREAPP] S3 credentials not configured');
   }
 
   s3Client = new S3Client({
     region,
+    endpoint, // If provided, it overrides AWS and connects to Cloudflare R2, Backblaze, etc.
     credentials: { accessKeyId, secretAccessKey },
   });
 
@@ -75,10 +77,14 @@ export async function generateUploadUrl(
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 min
 
+  const publicUrlBase = process.env.S3_PUBLIC_URL 
+    ? process.env.S3_PUBLIC_URL 
+    : `https://${BUCKET}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com`;
+
   return {
     uploadUrl,
     key,
-    publicUrl: `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
+    publicUrl: `${publicUrlBase}/${key}`,
   };
 }
 
