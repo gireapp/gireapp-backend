@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────
 
 import { z } from 'zod';
-import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types';
+import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
 
 // ── Auth Schemas ──
 

@@ -3,7 +3,7 @@
 // Gamification, points, badge thresholds
 // ─────────────────────────────────────────────────
 
-import type { BadgeType } from '../types';
+import type { BadgeType } from '../types/index.js';
 
 // ── Gamification Constants ──
 
