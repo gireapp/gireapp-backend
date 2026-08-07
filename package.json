@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace=backend",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspace=shared && npm run build --workspace=backend",
     "start": "npm run start --workspace=backend",
     "lint": "npm run lint --workspaces",
     "db:push": "npm run db:push --workspace=backend",

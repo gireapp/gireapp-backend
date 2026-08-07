@@ -4,9 +4,16 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    buildCommand: npm install --include=dev && npm run build
+    branch: main
+    healthCheckPath: /api/health
+    # Migrations run here because pre-deploy commands require a paid instance type.
+    buildCommand: npm install --include=dev && npm run build && npm run db:migrate:deploy --workspace=backend
     startCommand: npm run start
     envVars:
+      # backend compiles to CommonJS while @gireapp/shared is ESM, so the runtime
+      # needs require(esm) — unflagged only from Node 22.12 onward.
+      - key: NODE_VERSION
+        value: 24.14.1
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
