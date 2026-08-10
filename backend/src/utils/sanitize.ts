@@ -11,7 +11,18 @@
  * or message that happens to contain "select" or "delete").
  */
 const SQL_INJECTION_PATTERNS = [
-  /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|TRUNCATE|DECLARE|CAST)\b\s)/gi,
+  // Statement *shapes*, not bare keywords. A keyword followed only by whitespace
+  // matches ordinary language — "Union Ekpo", "Cast Iron", "Drop Anchor" were all
+  // rejected — so each verb must be accompanied by the syntax real SQL requires.
+  /\bUNION\s+(?:ALL\s+)?SELECT\b/gi,
+  /\bSELECT\b[\s\S]{0,120}?\bFROM\b/gi,
+  /\bINSERT\s+INTO\b/gi,
+  /\bUPDATE\b[\s\S]{0,120}?\bSET\b/gi,
+  /\bDELETE\s+FROM\b/gi,
+  /\b(?:DROP|CREATE|ALTER|TRUNCATE)\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b/gi,
+  /\b(?:EXEC|EXECUTE)\s*\(/gi,
+  /\bDECLARE\s+@/gi,
+  /\bCAST\s*\(/gi,
   /(--|;|\/\*|\*\/|xp_|sp_)/gi,
   /(\b(OR|AND)\b\s+\d+\s*=\s*\d+)/gi,     // OR 1=1, AND 1=1
   // Word-bounded so it matches a standalone hex literal (`SELECT 0x414243`) and

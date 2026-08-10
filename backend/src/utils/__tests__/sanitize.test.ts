@@ -155,14 +155,43 @@ describe('detectThreatsInBody — free text is still scanned', () => {
     ).toEqual([]);
   });
 
-  // KNOWN FALSE POSITIVE, pinned so it stays visible. The keyword rule matches a
-  // SQL verb followed by whitespace, which real names satisfy. Per-field scanning
-  // does not help here — the collision is inside the single `name` value. Fixing
-  // it means narrowing the keyword rule (e.g. requiring adjacent SQL syntax), not
-  // changing where the scan runs. Delete this test when that rule is tightened.
-  it('still rejects a legitimate name that collides with a SQL keyword', () => {
-    expect(detectThreatsInBody({ name: 'Union Ekpo' })).toContain('sql_injection');
-    expect(detectThreatsInBody({ name: 'Cast Iron' })).toContain('sql_injection');
+  it.each([
+    'Union Ekpo',
+    'Cast Iron',
+    'Drop Anchor',
+    'Grace Alter',
+    'Selina Update',
+  ])('accepts the legitimate name %s', (name) => {
+    expect(detectThreatsInBody({ name })).toEqual([]);
+  });
+
+  it.each([
+    'Select Committee on Education',
+    'Creative Writing',
+    'Executive Leadership',
+    'Declared Major',
+  ])('accepts the ordinary phrase %s', (department) => {
+    expect(detectThreatsInBody({ department })).toEqual([]);
+  });
+});
+
+describe('SQL statement shapes still detected', () => {
+  it.each([
+    ['union select', "admin' UNION SELECT password FROM users"],
+    ['union all select', 'x UNION ALL SELECT 1'],
+    ['select from', 'SELECT * FROM users'],
+    ['insert into', 'INSERT INTO users VALUES (1)'],
+    ['update set', 'UPDATE users SET role = 1'],
+    ['delete from', 'DELETE FROM sessions'],
+    ['drop table', 'DROP TABLE users'],
+    ['truncate table', 'TRUNCATE TABLE audit'],
+    ['alter table', 'ALTER TABLE users ADD col'],
+    ['exec call', 'EXEC(@cmd)'],
+    ['declare variable', 'DECLARE @x INT'],
+    ['cast call', 'CAST(1 AS TEXT)'],
+    ['schema enumeration', 'SELECT * FROM INFORMATION_SCHEMA.TABLES'],
+  ])('flags %s', (_label, payload) => {
+    expect(detectThreatsInBody({ name: payload })).toContain('sql_injection');
   });
 });
 
