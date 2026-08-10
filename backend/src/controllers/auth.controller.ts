@@ -6,10 +6,11 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  resendVerificationSchema,
   onboardingSchema,
 } from '@gireapp/shared';
 import type { AcademicLevel, SessionUser } from '@gireapp/shared';
-import { sanitizeObject, detectThreats } from '../utils/sanitize';
+import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import {
   signSessionToken,
   setSessionCookie,
@@ -29,6 +30,9 @@ export const TRACK_TO_ACADEMIC_LEVEL: Record<string, AcademicLevel> = {
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+/** Per-account gap between verification sends — authLimiter is per-IP, so it
+ *  alone can't stop a distributed attempt to flood one person's inbox. */
+const RESEND_VERIFICATION_COOLDOWN_MS = 60 * 1000; // 1 minute
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -69,7 +73,7 @@ function toSessionUser(user: SessionUserRow): SessionUser {
 
 /** Threat-detect + sanitise a request body; returns null (and responds 400) when blocked */
 function screenBody(req: Request, res: Response, context: string): unknown | null {
-  const threats = detectThreats(JSON.stringify(req.body));
+  const threats = detectThreatsInBody(req.body);
   if (threats.length > 0) {
     logger.security(`${context} blocked — threat detected`, {
       threats,
@@ -451,7 +455,9 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
         verificationExpiry: { gt: new Date() },
         deletedAt: null,
       },
-      select: { id: true },
+      // The name is returned so the success screen can greet the user; the link
+      // is often opened on a different device, where no local state survives.
+      select: { id: true, name: true },
     });
 
     if (!user) {
@@ -468,9 +474,93 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
       },
     });
 
-    res.status(200).json({ message: 'Email verified successfully. You can now log in.' });
+    res.status(200).json({
+      message: 'Email verified successfully. You can now log in.',
+      name: user.name,
+    });
   } catch (error) {
     logger.error('Verify-email error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+export const resendVerification = async (req: Request, res: Response): Promise<void> => {
+  // Mirrors forgotPassword: the response is identical whether or not the account
+  // exists, so this endpoint can't be used to enumerate registered emails.
+  const neutralResponse = {
+    message: 'If that account exists and is unverified, a new verification link has been sent.',
+  };
+
+  try {
+    const sanitizedBody = screenBody(req, res, 'Resend-verification');
+    if (sanitizedBody === null) return;
+
+    const result = resendVerificationSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { email } = result.data;
+
+    const user = await prisma.user.findUnique({
+      where: { email, deletedAt: null },
+      select: { id: true, name: true, emailVerified: true, verificationExpiry: true },
+    });
+
+    if (!user) {
+      logger.security('Verification resend requested for unknown email', { ip: req.ip });
+      res.status(200).json(neutralResponse);
+      return;
+    }
+
+    if (user.emailVerified) {
+      res.status(200).json(neutralResponse);
+      return;
+    }
+
+    // The issue time isn't stored, but expiry is always issuedAt + TTL — so the
+    // cooldown can be enforced without widening the schema.
+    if (user.verificationExpiry) {
+      const issuedAt = user.verificationExpiry.getTime() - VERIFICATION_TOKEN_TTL_MS;
+      if (Date.now() - issuedAt < RESEND_VERIFICATION_COOLDOWN_MS) {
+        logger.security('Verification resend throttled by cooldown', {
+          userId: user.id,
+          ip: req.ip,
+        });
+        res.status(200).json(neutralResponse);
+        return;
+      }
+    }
+
+    // Issuing a new token invalidates the previous link — a resend must not
+    // leave two working verification URLs in the user's inbox.
+    const verification = generateOneTimeToken();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationToken: verification.hash,
+        verificationExpiry: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+      },
+    });
+
+    // Fire-and-forget so response time doesn't leak whether the email exists
+    sendVerificationEmail(email, user.name, verification.raw).catch((err) => {
+      logger.error('Failed to resend verification email', {
+        errorMessage: (err as Error).message,
+        userId: user.id,
+      });
+    });
+
+    res.status(200).json(neutralResponse);
+  } catch (error) {
+    logger.error('Resend-verification error', {
       errorMessage: (error as Error).message,
       ip: req.ip,
     });

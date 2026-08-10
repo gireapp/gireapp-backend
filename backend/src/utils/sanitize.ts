@@ -14,7 +14,10 @@ const SQL_INJECTION_PATTERNS = [
   /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|TRUNCATE|DECLARE|CAST)\b\s)/gi,
   /(--|;|\/\*|\*\/|xp_|sp_)/gi,
   /(\b(OR|AND)\b\s+\d+\s*=\s*\d+)/gi,     // OR 1=1, AND 1=1
-  /(0x[0-9a-fA-F]+)/g,                       // Hex-encoded strings
+  // Word-bounded so it matches a standalone hex literal (`SELECT 0x414243`) and
+  // not "0x…" buried inside an ordinary token — randomly generated email aliases
+  // (e.g. Firefox Relay masks) routinely contain such a substring.
+  /\b0x[0-9a-fA-F]+\b/g,                     // Hex-encoded strings
   /(\bCHAR\s*\(\d+\))/gi,                    // CHAR() encoding
   /(WAITFOR\s+DELAY|BENCHMARK\s*\()/gi,      // Time-based injection
   /(\bINFORMATION_SCHEMA\b)/gi,              // Schema enumeration
@@ -115,27 +118,100 @@ export function sanitizeObject<T>(
  * Validate that a request body doesn't contain common attack payloads.
  * Returns an array of detected threat types (empty = safe).
  */
+/**
+ * `RegExp.test()` on a /g/ pattern advances `lastIndex` and leaves it there, so
+ * these shared module-level patterns carry state between calls. Resetting before
+ * every test is what makes detection deterministic — previously a match left the
+ * index dirty (the old reset only ran when the test *failed*), and the next
+ * request scanned from that offset, so identical input alternated between
+ * blocked and allowed on successive attempts.
+ */
+function matchesAnyPattern(patterns: RegExp[], input: string): boolean {
+  return patterns.some((pattern) => {
+    pattern.lastIndex = 0;
+    return pattern.test(input);
+  });
+}
+
 export function detectThreats(input: string): string[] {
   const threats: string[] = [];
 
-  // Check for SQL injection
-  for (const pattern of SQL_INJECTION_PATTERNS) {
-    if (pattern.test(input)) {
-      threats.push('sql_injection');
-      break;
-    }
-    // Reset lastIndex for global patterns
-    pattern.lastIndex = 0;
+  if (matchesAnyPattern(SQL_INJECTION_PATTERNS, input)) {
+    threats.push('sql_injection');
   }
 
-  // Check for XSS
-  for (const pattern of XSS_PATTERNS) {
-    if (pattern.test(input)) {
-      threats.push('xss');
-      break;
-    }
-    pattern.lastIndex = 0;
+  if (matchesAnyPattern(XSS_PATTERNS, input)) {
+    threats.push('xss');
   }
 
   return threats;
+}
+
+/**
+ * Credentials are never scanned. They are bcrypt-hashed or looked up by SHA-256
+ * hash and never interpolated anywhere, so scanning buys nothing — while a
+ * high-entropy password trips `;`, `--` or a hex run purely by chance, and the
+ * user gets "suspicious input" with no way to tell which field is at fault.
+ */
+const UNSCANNED_CREDENTIAL_FIELDS = new Set([
+  'password',
+  'confirmPassword',
+  'currentPassword',
+  'newPassword',
+  'token',
+]);
+
+/**
+ * Fields whose Zod schema pins them to a closed format — an email address, a
+ * parseable date, an enum member. A value that satisfies those checks has no
+ * room left to carry a payload, so scanning it only produces false positives
+ * (randomly generated email aliases were being rejected).
+ */
+const UNSCANNED_SCHEMA_FIELDS = new Set([
+  'email',
+  'guardianEmail',
+  'dateOfBirth',
+  'academicLevel',
+  'moodTheme',
+]);
+
+function isUnscannedField(key: string): boolean {
+  return UNSCANNED_CREDENTIAL_FIELDS.has(key) || UNSCANNED_SCHEMA_FIELDS.has(key);
+}
+
+function visitScannableStrings(value: unknown, visit: (text: string) => void): void {
+  if (typeof value === 'string') {
+    visit(value);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) visitScannableStrings(item, visit);
+    return;
+  }
+
+  if (value !== null && typeof value === 'object') {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (isUnscannedField(key)) continue;
+      visitScannableStrings(nested, visit);
+    }
+  }
+}
+
+/**
+ * Threat-scan a request body field by field.
+ *
+ * Scanning `JSON.stringify(body)` as one blob meant the structural punctuation
+ * and neighbouring fields could combine into a match that exists in no single
+ * value, and it swept in credentials and schema-validated fields alongside the
+ * free text that actually warrants checking.
+ */
+export function detectThreatsInBody(body: unknown): string[] {
+  const threats = new Set<string>();
+
+  visitScannableStrings(body, (text) => {
+    for (const threat of detectThreats(text)) threats.add(threat);
+  });
+
+  return [...threats];
 }

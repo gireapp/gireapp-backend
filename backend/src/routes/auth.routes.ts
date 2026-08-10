@@ -7,6 +7,7 @@ import {
   forgotPassword,
   resetPassword,
   verifyEmail,
+  resendVerification,
   onboarding,
 } from '../controllers/auth.controller';
 import { authLimiter } from '../middlewares/rateLimit.middleware';
@@ -34,6 +35,9 @@ router.post('/reset-password', authLimiter, resetPassword);
 
 // /api/auth/verify-email
 router.post('/verify-email', authLimiter, verifyEmail);
+
+// /api/auth/resend-verification
+router.post('/resend-verification', authLimiter, resendVerification);
 
 // /api/auth/onboarding
 router.post('/onboarding', requireAuth, onboarding);

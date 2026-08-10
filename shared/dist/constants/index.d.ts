@@ -1,4 +1,4 @@
-import type { BadgeType } from '../types';
+import type { BadgeType } from '../types/index.js';
 export declare const POINTS: {
     readonly QUIZ_PASS: 50;
     readonly QUIZ_FAIL: 10;
@@ -22,6 +22,7 @@ export declare const API_PATHS: {
         readonly FORGOT_PASSWORD: "/api/auth/forgot-password";
         readonly RESET_PASSWORD: "/api/auth/reset-password";
         readonly VERIFY_EMAIL: "/api/auth/verify-email";
+        readonly RESEND_VERIFICATION: "/api/auth/resend-verification";
         readonly ONBOARDING: "/api/auth/onboarding";
     };
     readonly COURSES: {

@@ -3,7 +3,7 @@
 // Used on both frontend (forms) and backend (controllers)
 // ─────────────────────────────────────────────────
 import { z } from 'zod';
-import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types';
+import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
 // ── Auth Schemas ──
 export const registerSchema = z.object({
     name: z
@@ -38,6 +38,12 @@ export const loginSchema = z.object({
     password: z.string().min(1, 'Password is required'),
 });
 export const forgotPasswordSchema = z.object({
+    email: z
+        .string()
+        .email('Please enter a valid email address')
+        .transform((e) => e.toLowerCase().trim()),
+});
+export const resendVerificationSchema = z.object({
     email: z
         .string()
         .email('Please enter a valid email address')
