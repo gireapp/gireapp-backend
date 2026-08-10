@@ -15,9 +15,15 @@ const SQL_INJECTION_PATTERNS = [
   // matches ordinary language — "Union Ekpo", "Cast Iron", "Drop Anchor" were all
   // rejected — so each verb must be accompanied by the syntax real SQL requires.
   /\bUNION\s+(?:ALL\s+)?SELECT\b/gi,
-  /\bSELECT\b[\s\S]{0,120}?\bFROM\b/gi,
+  // The gap between SELECT and FROM is constrained to an actual select list —
+  // `*`, or identifiers/function calls optionally comma-separated. Allowing any
+  // characters matched English too ("select a course from the list"); a select
+  // list never contains bare prose, because every item must be one token.
+  /\bSELECT\s+(?:DISTINCT\s+|TOP\s+\d+\s+)?(?:\*|[\w.*`"'()[\]]+(?:\s*,\s*[\w.*`"'()[\]]+){0,32})\s+FROM\b/gi,
   /\bINSERT\s+INTO\b/gi,
-  /\bUPDATE\b[\s\S]{0,120}?\bSET\b/gi,
+  // Same reasoning: UPDATE takes exactly one table reference before SET, so
+  // "update your profile and set a new password" no longer qualifies.
+  /\bUPDATE\s+[\w.`"'[\]]+\s+SET\b/gi,
   /\bDELETE\s+FROM\b/gi,
   /\b(?:DROP|CREATE|ALTER|TRUNCATE)\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b/gi,
   /\b(?:EXEC|EXECUTE)\s*\(/gi,

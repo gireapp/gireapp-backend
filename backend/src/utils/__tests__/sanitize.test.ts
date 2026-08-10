@@ -173,15 +173,35 @@ describe('detectThreatsInBody — free text is still scanned', () => {
   ])('accepts the ordinary phrase %s', (department) => {
     expect(detectThreatsInBody({ department })).toEqual([]);
   });
+
+  // Prose that reads like SQL because English reuses the same verbs. The select
+  // list and the UPDATE table reference are each exactly one token in real SQL,
+  // which is what separates these from a genuine statement.
+  it.each([
+    'Select a course from the list',
+    'select from the menu',
+    'Choose any subject from our catalogue',
+    'Please update your profile and set a new password',
+    'Update the answer and set it aside',
+    'Delete the file from your device',
+  ])('accepts the sentence "%s"', (bio) => {
+    expect(detectThreatsInBody({ bio })).toEqual([]);
+  });
 });
 
 describe('SQL statement shapes still detected', () => {
   it.each([
     ['union select', "admin' UNION SELECT password FROM users"],
     ['union all select', 'x UNION ALL SELECT 1'],
-    ['select from', 'SELECT * FROM users'],
+    ['select star from', 'SELECT * FROM users'],
+    ['select column from', 'SELECT password FROM accounts'],
+    ['select column list from', 'SELECT username, password FROM accounts'],
+    ['select distinct from', 'SELECT DISTINCT id FROM sessions'],
+    ['select function from', 'SELECT COUNT(*) FROM users'],
+    ['select qualified column from', 'SELECT u.password FROM users u'],
     ['insert into', 'INSERT INTO users VALUES (1)'],
     ['update set', 'UPDATE users SET role = 1'],
+    ['update qualified table set', 'UPDATE public.users SET role = 1'],
     ['delete from', 'DELETE FROM sessions'],
     ['drop table', 'DROP TABLE users'],
     ['truncate table', 'TRUNCATE TABLE audit'],
