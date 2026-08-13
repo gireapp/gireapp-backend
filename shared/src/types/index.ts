@@ -81,12 +81,38 @@ export interface PaginatedResponse<T> {
 
 // ── Dashboard Types ──
 
+export interface DashboardStats {
+  /** Every attempt ever, not the truncated `recentActivity` slice. */
+  quizzesTaken: number;
+  /** Mean score across all attempts, 0–100. `null` until the first attempt. */
+  averageScore: number | null;
+  /** Points earned in the last 7 days, derived from attempts in that window. */
+  weeklyPoints: number;
+  /**
+   * Standing among learners at the same academic level, as a percentage —
+   * 10 means "top 10%". `null` when the learner has no points or has too few
+   * peers for a ranking to mean anything.
+   */
+  rankPercentile: number | null;
+}
+
+/** The next quiz in an enrolled course that the learner hasn't attempted. */
+export interface NextQuiz {
+  id: string;
+  courseId: string;
+  title: string;
+  /** Always null for now — quizzes carry no due date in the schema. */
+  dueDate: string | null;
+}
+
 export interface DashboardOverview {
   profile: SessionUser;
   totalPoints: number;
   badgeCount: number;
   activeCourses: CourseCard[];
   recentActivity: ActivityItem[];
+  stats: DashboardStats;
+  nextQuiz: NextQuiz | null;
 }
 
 export interface CourseCard {
