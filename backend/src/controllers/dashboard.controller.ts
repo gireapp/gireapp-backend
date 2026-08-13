@@ -39,15 +39,22 @@ export function sumAttemptPoints(
 }
 
 /**
- * Percentage of same-level learners at or above this learner, so 10 means
- * "top 10%". Null when the learner has yet to score, or the cohort is too small
- * for the number to carry meaning.
+ * Where a learner sits among peers, as a percentage — 10 means "top 10%".
+ * `ahead` counts peers with strictly more points; the +1s include the learner
+ * themselves, so a clear leader lands inside the top slice rather than at 0%.
+ * Null when the cohort is too small for the number to carry meaning.
  */
+export function rankPercentileFrom(ahead: number, peerCount: number): number | null {
+  if (peerCount < MIN_PEERS_FOR_RANK) return null;
+  return Math.ceil(((ahead + 1) / (peerCount + 1)) * 100);
+}
+
 async function calculateRankPercentile(
   userId: string,
   academicLevel: AcademicLevel | null,
   points: number
 ): Promise<number | null> {
+  // An unscored learner has no standing to report.
   if (points <= 0 || !academicLevel) return null;
 
   const peerFilter = { academicLevel, deletedAt: null, id: { not: userId } };
@@ -57,11 +64,7 @@ async function calculateRankPercentile(
     prisma.user.count({ where: { ...peerFilter, points: { gt: points } } }),
   ]);
 
-  if (peerCount < MIN_PEERS_FOR_RANK) return null;
-
-  // +1 counts the learner themselves, so a clear leader lands in the top slice
-  // rather than at 0%.
-  return Math.ceil(((ahead + 1) / (peerCount + 1)) * 100);
+  return rankPercentileFrom(ahead, peerCount);
 }
 
 export const getDashboard = async (req: Request, res: Response): Promise<void> => {
