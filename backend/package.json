@@ -2,7 +2,7 @@
   "name": "gireapp-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "GIREAPP – Backend API",
+  "description": "GIREAPP \u2013 Backend API",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
@@ -15,7 +15,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:purge-test-users": "tsx scripts/purge-test-users.ts"
   },
   "dependencies": {
     "@gireapp/shared": "file:../shared",
