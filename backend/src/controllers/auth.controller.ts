@@ -418,14 +418,25 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
 
     const passwordHash = await hash(password, 12);
 
-    // Single-use: clear the token alongside the new hash
+    // Single-use: clear the token alongside the new hash. Stamping
+    // passwordChangedAt retires every token minted before now, so a reset ends
+    // any session an attacker was already holding — and clears the lockout,
+    // since the legitimate owner has just proven control of the inbox.
     await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
         resetToken: null,
         resetTokenExpiry: null,
+        passwordChangedAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
+    });
+
+    logger.security('Password reset — existing sessions invalidated', {
+      userId: user.id,
+      ip: req.ip,
     });
 
     res.status(200).json({ message: 'Password reset successfully. You can now log in.' });

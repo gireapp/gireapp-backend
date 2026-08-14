@@ -68,6 +68,10 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
+  // Session cut-off: tokens minted before this instant are rejected by
+  // requireAuth, so a password reset ends every session already in flight.
+  passwordChangedAt   DateTime?
+
   // Relations
   enrolments    Enrolment[]
   quizAttempts  QuizAttempt[]
