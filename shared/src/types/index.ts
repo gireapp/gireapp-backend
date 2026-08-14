@@ -110,6 +110,8 @@ export interface DashboardOverview {
   totalPoints: number;
   badgeCount: number;
   activeCourses: CourseCard[];
+  /** Published courses at the learner's level that they have not enrolled in. */
+  recommendedCourses: CourseCard[];
   recentActivity: ActivityItem[];
   stats: DashboardStats;
   nextQuiz: NextQuiz | null;

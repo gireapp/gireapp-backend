@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import type { JwtPayload } from '@gireapp/shared';
+import type { JwtPayload, Role } from '@gireapp/shared';
 import { prisma } from '../services/prisma';
 import { JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE } from '../config/env';
 import { logger } from '../utils/logger';
@@ -54,8 +54,11 @@ export const requireAuth = async (
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
     }) as JwtPayload;
-  } catch {
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  } catch (error) {
+    const expired = error instanceof Error && error.name === 'TokenExpiredError';
+    res.status(401).json({
+      error: expired ? 'Session expired. Please log in again.' : 'Unauthorized: Invalid token',
+    });
     return;
   }
 
@@ -90,4 +93,29 @@ export const requireAuth = async (
     });
     res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
+};
+
+/** Roles allowed through `/api/admin/*`. */
+const STAFF_ROLES: Role[] = ['TUTOR', 'ADMIN'];
+
+/**
+ * BE-ADMIN-001. Runs after `requireAuth`, so the token is already verified and
+ * the account already checked for deletion and stale credentials. This adds the
+ * role gate and records every rejection in the security audit log.
+ */
+export const requireStaff = (req: Request, res: Response, next: NextFunction): void => {
+  const user = (req as AuthenticatedRequest).user;
+
+  if (!user || !STAFF_ROLES.includes(user.role)) {
+    logger.security('Staff route blocked — insufficient role', {
+      userId: user?.userId ?? 'anonymous',
+      role: user?.role ?? 'none',
+      path: req.originalUrl,
+      ip: req.ip,
+    });
+    res.status(403).json({ error: 'Forbidden: staff access required.' });
+    return;
+  }
+
+  next();
 };

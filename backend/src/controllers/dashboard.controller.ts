@@ -14,6 +14,7 @@ import { logger } from '../utils/logger';
 
 const RECENT_ACTIVITY_LIMIT = 10;
 const WEEKLY_WINDOW_DAYS = 7;
+const RECOMMENDED_COURSE_LIMIT = 3;
 
 /** Below this many peers a percentile says more about cohort size than merit. */
 const MIN_PEERS_FOR_RANK = 5;
@@ -82,6 +83,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       quizzesTaken,
       scoreAggregate,
       weeklyAttempts,
+      recommendedRows,
       nextQuizRow,
     ] = await Promise.all([
         prisma.user.findUnique({
@@ -145,6 +147,28 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
         prisma.quizAttempt.findMany({
           where: { userId, submittedAt: { gte: startOfWeeklyWindow() } },
           select: { score: true, quiz: { select: { passingScore: true } } },
+        }),
+        // Courses at the learner's level they have NOT joined — the panel is
+        // "recommended", so enrolments belong in activeCourses, not here.
+        prisma.course.findMany({
+          where: {
+            published: true,
+            deletedAt: null,
+            enrolments: { none: { userId } },
+            // Filter in the query, not after: taking N rows first would let
+            // courses at other levels crowd out the learner's own.
+            ...(payload.academicLevel ? { academicLevel: payload.academicLevel } : {}),
+          },
+          orderBy: { createdAt: 'desc' },
+          take: RECOMMENDED_COURSE_LIMIT,
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            thumbnailUrl: true,
+            academicLevel: true,
+            modules: { select: { lessons: { select: { estimatedMinutes: true } } } },
+          },
         }),
         prisma.quiz.findFirst({
           where: {
@@ -226,11 +250,26 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
         }
       : null;
 
+    const recommendedCourses: CourseCard[] = recommendedRows.map((course) => {
+      const lessons = course.modules.flatMap((m) => m.lessons);
+      return {
+        id: course.id,
+        title: course.title,
+        description: course.description,
+        thumbnailUrl: course.thumbnailUrl,
+        moduleCount: course.modules.length,
+        lessonCount: lessons.length,
+        progress: 0,
+        estimatedMinutes: lessons.reduce((sum, l) => sum + l.estimatedMinutes, 0),
+      };
+    });
+
     const overview: DashboardOverview = {
       profile,
       totalPoints: user.points,
       badgeCount,
       activeCourses,
+      recommendedCourses,
       recentActivity,
       stats: {
         quizzesTaken,
