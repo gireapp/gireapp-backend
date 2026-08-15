@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
 import { logger } from '../utils/logger';
+import { createDownloadUrl, isObjectKey, isStorageConfigured } from '../services/storage';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import type { BadgeType, AcademicLevel, CourseCard } from '@gireapp/shared';
 import { ACADEMIC_LEVELS } from '@gireapp/shared';
@@ -59,10 +60,25 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
     const prevLesson = allLessons[currentIndex - 1] || null;
     const currentModule = enrolment.course.modules.find((m) => m.id === currentLesson.moduleId) || null;
 
+    // R2 objects are private, so the player gets a short-lived signed URL rather
+    // than a key it could not fetch. Legacy paths and absolute URLs pass through.
+    let mediaUrl = currentLesson.mediaUrl;
+    if (mediaUrl && isObjectKey(mediaUrl) && isStorageConfigured()) {
+      try {
+        mediaUrl = await createDownloadUrl(mediaUrl);
+      } catch (error) {
+        logger.error('Could not sign lesson media URL', {
+          errorMessage: (error as Error).message,
+          lessonId: currentLesson.id,
+        });
+        mediaUrl = null;
+      }
+    }
+
     res.status(200).json({
       success: true,
       data: {
-        lesson: currentLesson,
+        lesson: { ...currentLesson, mediaUrl },
         nextLessonId: nextLesson?.id || null,
         prevLessonId: prevLesson?.id || null,
         module: currentModule,

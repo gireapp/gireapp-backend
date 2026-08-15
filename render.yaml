@@ -32,11 +32,11 @@ services:
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
-      - key: AWS_ACCESS_KEY_ID
+      - key: R2_ACCOUNT_ID
         sync: false
-      - key: AWS_SECRET_ACCESS_KEY
+      - key: R2_ACCESS_KEY_ID
         sync: false
-      - key: AWS_REGION
+      - key: R2_SECRET_ACCESS_KEY
         sync: false
-      - key: AWS_S3_BUCKET
+      - key: R2_BUCKET
         sync: false

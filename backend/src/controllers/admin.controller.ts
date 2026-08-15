@@ -1,40 +1,15 @@
 import { Request, Response } from 'express';
-import { randomUUID } from 'crypto';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createCourseSchema } from '@gireapp/shared';
 import { prisma } from '../services/prisma';
 import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
-
-/** BE-ADMIN-003: presigned PUT links expire in 15 minutes. */
-const UPLOAD_URL_TTL_SECONDS = 15 * 60;
-
-/** Only lesson media — anything else is rejected with 415. */
-const ALLOWED_UPLOAD_TYPES: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mov': 'video/quicktime',
-};
-
-export function extensionOf(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  return dot === -1 ? '' : filename.slice(dot).toLowerCase();
-}
-
-export function isAllowedUpload(filename: string): boolean {
-  return extensionOf(filename) in ALLOWED_UPLOAD_TYPES;
-}
-
-/**
- * Namespaced by a UUID so two tutors uploading `notes.pdf` never collide, and a
- * guessed key can't reach someone else's object.
- */
-export function buildObjectKey(filename: string): string {
-  return `lessons/${randomUUID()}${extensionOf(filename)}`;
-}
+import {
+  allowedUploadExtensions,
+  createUploadUrl,
+  isAllowedUpload,
+  isStorageConfigured,
+} from '../services/storage';
 
 export const createCourse = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -103,46 +78,21 @@ export const getUploadUrl = async (req: Request, res: Response): Promise<void> =
 
     if (!isAllowedUpload(filename)) {
       res.status(415).json({
-        error: `Unsupported file type. Allowed: ${Object.keys(ALLOWED_UPLOAD_TYPES).join(', ')}`,
+        error: `Unsupported file type. Allowed: ${allowedUploadExtensions().join(', ')}`,
       });
       return;
     }
 
-    const bucket = process.env.AWS_S3_BUCKET;
-    const region = process.env.AWS_REGION;
-    const hasCredentials = Boolean(
-      process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-    );
-
     // Missing config is an environment problem, not a server fault — 503 says
     // "not wired up here" rather than burying it in a generic 500.
-    if (!bucket || !region || !hasCredentials) {
-      logger.error('Upload URL requested but S3 is not configured', {
-        hasBucket: Boolean(bucket),
-        hasRegion: Boolean(region),
-        hasCredentials,
-      });
+    if (!isStorageConfigured()) {
+      logger.error('Upload URL requested but R2 is not configured');
       res.status(503).json({ error: 'File uploads are not configured on this environment.' });
       return;
     }
 
-    const key = buildObjectKey(filename);
-    const s3 = new S3Client({ region });
-
-    const uploadUrl = await getSignedUrl(
-      s3,
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        ContentType: ALLOWED_UPLOAD_TYPES[extensionOf(filename)],
-      }),
-      { expiresIn: UPLOAD_URL_TTL_SECONDS }
-    );
-
-    res.status(200).json({
-      success: true,
-      data: { uploadUrl, key, expiresInSeconds: UPLOAD_URL_TTL_SECONDS },
-    });
+    const data = await createUploadUrl(filename);
+    res.status(200).json({ success: true, data });
   } catch (error) {
     logger.error('Upload URL error', { errorMessage: (error as Error).message });
     res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });

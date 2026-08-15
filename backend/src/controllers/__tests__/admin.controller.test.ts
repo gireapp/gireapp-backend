@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { extensionOf, isAllowedUpload, buildObjectKey } from '../admin.controller';
+import {
+  extensionOf,
+  isAllowedUpload,
+  buildObjectKey,
+  isObjectKey,
+} from '../../services/storage';
 
 describe('extensionOf', () => {
   it('lowercases so .PDF is treated as .pdf', () => {
@@ -49,4 +54,15 @@ describe('buildObjectKey', () => {
       'confidential'
     );
   });
+});
+
+describe('isObjectKey', () => {
+  it('treats an R2 key as needing a signed URL', () => {
+    expect(isObjectKey('lessons/2f1a-4c.pdf')).toBe(true);
+  });
+
+  it.each(['/sample-lesson.pdf', 'https://cdn.example.com/a.pdf', 'http://x/y.pdf'])(
+    'leaves the ready-made location %s alone',
+    (value) => expect(isObjectKey(value)).toBe(false)
+  );
 });
