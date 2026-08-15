@@ -3,7 +3,7 @@ import { prisma } from '../services/prisma';
 import { logger } from '../utils/logger';
 import { createDownloadUrl, isObjectKey, isStorageConfigured } from '../services/storage';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
-import type { BadgeType, AcademicLevel, CourseCard } from '@gireapp/shared';
+import type { BadgeType, AcademicLevel, CourseListItem } from '@gireapp/shared';
 import { ACADEMIC_LEVELS } from '@gireapp/shared';
 
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
@@ -290,13 +290,15 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
         title: true,
         description: true,
         thumbnailUrl: true,
+        department: true,
+        academicLevel: true,
         modules: { select: { lessons: { select: { estimatedMinutes: true } } } },
         enrolments: { where: { userId }, select: { progress: true } },
       },
     });
 
     // No matches is an empty list, never a 404 — the client renders an empty state.
-    const data: (CourseCard & { isEnrolled: boolean })[] = courses.map((course) => {
+    const data: CourseListItem[] = courses.map((course) => {
       const lessons = course.modules.flatMap((m) => m.lessons);
       const enrolment = course.enrolments[0];
 
@@ -305,6 +307,8 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
         title: course.title,
         description: course.description,
         thumbnailUrl: course.thumbnailUrl,
+        department: course.department,
+        academicLevel: course.academicLevel,
         moduleCount: course.modules.length,
         lessonCount: lessons.length,
         progress: enrolment?.progress ?? 0,

@@ -128,6 +128,16 @@ export interface CourseCard {
   estimatedMinutes: number;
 }
 
+/**
+ * A course as it appears in a listing: counts rather than the full module tree,
+ * plus whether the caller has already joined. `CourseDetail` carries the tree.
+ */
+export interface CourseListItem extends CourseCard {
+  department: string;
+  academicLevel: AcademicLevel;
+  isEnrolled: boolean;
+}
+
 export interface ActivityItem {
   id: string;
   type: 'lesson_completed' | 'quiz_passed' | 'quiz_failed' | 'badge_earned' | 'course_enrolled';
