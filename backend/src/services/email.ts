@@ -4,16 +4,38 @@
 // ─────────────────────────────────────────────────
 
 import { Resend } from 'resend';
+import { logger } from '../utils/logger';
 
 let resendClient: Resend | null = null;
+
+/**
+ * Resend keys are `re_` followed by a long random body. The value shipped in
+ * .env.example (`re_xxxxxxxxxx`) is syntactically close enough that the SDK
+ * accepts it and only fails at send time, with a 403 the caller never sees.
+ * Rejecting it here turns a silent non-delivery into a startup-time error.
+ */
+function assertUsableApiKey(apiKey: string): void {
+  const looksLikePlaceholder = /^re_x+$/i.test(apiKey) || apiKey.length < 20;
+
+  if (!apiKey.startsWith('re_') || looksLikePlaceholder) {
+    throw new Error(
+      '[GIREAPP] RESEND_API_KEY looks like a placeholder, not a real key. ' +
+        'Create one at https://resend.com/api-keys and set it in backend/.env.local.'
+    );
+  }
+}
 
 function getResend(): Resend {
   if (resendClient) return resendClient;
 
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    throw new Error('[GIREAPP] RESEND_API_KEY not configured');
+    throw new Error(
+      '[GIREAPP] RESEND_API_KEY not configured — no transactional email can be sent.'
+    );
   }
+
+  assertUsableApiKey(apiKey);
 
   resendClient = new Resend(apiKey);
   return resendClient;
@@ -42,36 +64,91 @@ interface SendEmailOptions {
   html: string;
 }
 
-/** Low-level send with retry (up to 3 attempts per M2: BE-SEC-001) */
-async function sendEmail({ to, subject, html }: SendEmailOptions): Promise<boolean> {
-  const resend = getResend();
-  const maxRetries = 3;
+/** Raised when a message could not be handed to Resend. Callers log it; none recover. */
+export class EmailDeliveryError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly attempts: number
+  ) {
+    super(message);
+    this.name = 'EmailDeliveryError';
+  }
+}
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+/**
+ * Resend failures that repeat identically no matter how often they are retried:
+ * bad credentials, an unverified From domain, a malformed request. Retrying these
+ * only delays the error by the length of the backoff.
+ */
+const PERMANENT_ERROR_CODES = new Set([
+  'missing_api_key',
+  'invalid_api_Key', // Resend's own spelling of this code
+  'invalid_from_address',
+  'validation_error',
+  'missing_required_field',
+  'invalid_access',
+  'invalid_parameter',
+  'invalid_region',
+  'not_found',
+  'method_not_allowed',
+]);
+
+const MAX_RETRIES = 3;
+
+/**
+ * Low-level send with retry (up to 3 attempts per M2: BE-SEC-001).
+ *
+ * Throws on failure rather than returning false. Every caller is fire-and-forget
+ * (`sendX(...).catch(log)`) so that a mail outage cannot fail a registration —
+ * but a `.catch()` only runs on a rejected promise. While this resolved `false`,
+ * a rejected send logged nothing at the call site and the backend looked healthy
+ * while no mail was arriving.
+ */
+async function sendEmail({ to, subject, html }: SendEmailOptions): Promise<void> {
+  const resend = getResend();
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const result = await resend.emails.send({
-        from: FROM,
-        to,
+      const result = await resend.emails.send({ from: FROM, to, subject, html });
+
+      if (!result.error) return;
+
+      const { name: code, message } = result.error;
+      const isPermanent = PERMANENT_ERROR_CODES.has(code);
+
+      logger.error('Resend rejected a message', {
         subject,
-        html,
+        code,
+        errorMessage: message,
+        attempt,
+        permanent: isPermanent,
       });
 
-      if (result.error) {
-        console.error(`[GIREAPP Email] Attempt ${attempt} failed:`, result.error);
-        if (attempt === maxRetries) return false;
-        await new Promise((r) => setTimeout(r, 1000 * attempt)); // Exponential backoff
-        continue;
+      if (isPermanent || attempt === MAX_RETRIES) {
+        throw new EmailDeliveryError(
+          `Resend rejected "${subject}" (${code}): ${message}`,
+          code,
+          attempt
+        );
       }
-
-      return true;
     } catch (error) {
-      console.error(`[GIREAPP Email] Attempt ${attempt} exception:`, error);
-      if (attempt === maxRetries) return false;
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
-    }
-  }
+      if (error instanceof EmailDeliveryError) throw error;
 
-  return false;
+      const errorMessage = (error as Error).message;
+      logger.error('Resend request threw', { subject, errorMessage, attempt });
+
+      if (attempt === MAX_RETRIES) {
+        throw new EmailDeliveryError(
+          `Could not reach Resend for "${subject}": ${errorMessage}`,
+          'network_error',
+          attempt
+        );
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 1000 * attempt)); // Exponential backoff
+  }
 }
 
 /** Send email verification link */
@@ -79,7 +156,7 @@ export async function sendVerificationEmail(
   to: string,
   name: string,
   token: string
-): Promise<boolean> {
+): Promise<void> {
   const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
 
   return sendEmail({
@@ -123,7 +200,7 @@ export async function sendGuardianConsentEmail(
   to: string,
   learnerName: string,
   token: string
-): Promise<boolean> {
+): Promise<void> {
   const confirmUrl = `${APP_URL}/guardian-consent?token=${token}`;
 
   return sendEmail({
@@ -169,7 +246,7 @@ export async function sendPasswordResetEmail(
   to: string,
   name: string,
   token: string
-): Promise<boolean> {
+): Promise<void> {
   const resetUrl = `${APP_URL}/reset-password?token=${token}`;
 
   return sendEmail({
@@ -209,7 +286,7 @@ export async function sendContactFormEmail(
   fromEmail: string,
   subject: string,
   message: string
-): Promise<boolean> {
+): Promise<void> {
   const counsellingEmail = process.env.COUNSELLING_EMAIL ?? 'counselling@gireapp.com';
 
   return sendEmail({

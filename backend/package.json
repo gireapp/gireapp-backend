@@ -16,7 +16,8 @@
     "db:studio": "prisma studio",
     "test": "vitest run",
     "postinstall": "prisma generate",
-    "db:purge-test-users": "tsx scripts/purge-test-users.ts"
+    "db:purge-test-users": "tsx scripts/purge-test-users.ts",
+    "email:test": "tsx scripts/send-test-email.ts"
   },
   "dependencies": {
     "@gireapp/shared": "file:../shared",
