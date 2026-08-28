@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
+import { sessionUserSelect, toSessionUser } from '../utils/session-user';
 import type {
   ActivityItem,
   AcademicLevel,
@@ -88,17 +89,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
     ] = await Promise.all([
         prisma.user.findUnique({
           where: { id: userId, deletedAt: null },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-            academicLevel: true,
-            department: true,
-            moodTheme: true,
-            points: true,
-            image: true,
-          },
+          select: sessionUserSelect,
         }),
         prisma.enrolment.findMany({
           where: { userId, course: { deletedAt: null, published: true } },
@@ -189,10 +180,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const profile: SessionUser = {
-      ...user,
-      isOnboardingComplete: Boolean(user.academicLevel && user.department),
-    };
+    const profile: SessionUser = toSessionUser(user);
 
     const activeCourses: CourseCard[] = enrolments.map((enrolment) => {
       const lessons = enrolment.course.modules.flatMap((m) => m.lessons);
@@ -284,7 +272,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       nextQuiz,
     };
 
-    res.status(200).json(overview);
+    res.status(200).json({ success: true, data: overview });
   } catch (error) {
     logger.error('Dashboard error', {
       errorMessage: (error as Error).message,

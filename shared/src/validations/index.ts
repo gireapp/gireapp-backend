@@ -8,6 +8,21 @@ import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
 
 // ── Auth Schemas ──
 
+/**
+ * Age in whole years as of `reference` (defaults to now). Mirrors the backend's
+ * `is_minor` generated column (`date_of_birth > CURRENT_DATE - INTERVAL '18 years'`)
+ * so the frontend's minor/guardian-consent gating agrees with the DB.
+ */
+export function calculateAge(dob: Date, reference: Date = new Date()): number {
+  let age = reference.getFullYear() - dob.getFullYear();
+  const monthDiff = reference.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && reference.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+
 export const registerSchema = z.object({
   name: z
     .string()
@@ -28,14 +43,37 @@ export const registerSchema = z.object({
       'Password must contain at least one uppercase letter, one lowercase letter, and one number'
     ),
   confirmPassword: z.string(),
+  dateOfBirth: z
+    .string()
+    .min(1, 'Date of birth is required')
+    .refine((v) => !Number.isNaN(Date.parse(v)), 'Please enter a valid date')
+    .refine((v) => new Date(v) <= new Date(), 'Date of birth cannot be in the future')
+    .refine((v) => calculateAge(new Date(v)) <= 120, 'Please enter a valid date of birth'),
+  // Only required for under-18 accounts, enforced by the whole-object refine below.
+  guardianEmail: z
+    .union([z.string().trim().email('Please enter a valid guardian email address'), z.literal('')])
+    .optional()
+    .transform((v) => (v ? v : undefined)),
   track: z.string().optional(),
   department: z.string().optional(),
   level: z.string().optional(),
   focusArea: z.string().optional(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword'],
-});
+})
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
+  .refine(
+    (data) => {
+      const dob = new Date(data.dateOfBirth);
+      if (Number.isNaN(dob.getTime())) return true; // dateOfBirth's own validation already reports this
+      return calculateAge(dob) >= 18 || !!data.guardianEmail;
+    },
+    {
+      message: 'A guardian email is required for accounts under 18',
+      path: ['guardianEmail'],
+    }
+  );
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 

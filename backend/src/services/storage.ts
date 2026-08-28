@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────────
-// GIREAPP — Object storage (Cloudflare R2)
-// R2 speaks the S3 API, so the AWS SDK is used purely as a protocol client.
+// GIREAPP — Object storage (S3-compatible)
+// Cloudflare R2, Backblaze B2, MinIO and AWS S3 all speak the same API, so the
+// provider is a matter of endpoint + credentials, never of code. Set S3_ENDPOINT
+// and S3_REGION per provider; everything below is provider-agnostic.
 // ─────────────────────────────────────────────────
 
 import { randomUUID } from 'crypto';
@@ -56,10 +58,10 @@ export function isObjectKey(mediaUrl: string): boolean {
 
 export function isStorageConfigured(): boolean {
   return Boolean(
-    process.env.R2_ACCOUNT_ID &&
-      process.env.R2_ACCESS_KEY_ID &&
-      process.env.R2_SECRET_ACCESS_KEY &&
-      process.env.R2_BUCKET
+    process.env.S3_ENDPOINT &&
+      process.env.S3_ACCESS_KEY_ID &&
+      process.env.S3_SECRET_ACCESS_KEY &&
+      process.env.S3_BUCKET
   );
 }
 
@@ -68,13 +70,19 @@ let client: S3Client | null = null;
 function storageClient(): S3Client {
   if (client) return client;
 
-  // `region: 'auto'` is R2's convention — buckets are not region-scoped.
   client = new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    // R2 ignores region and expects 'auto'; B2 and S3 want a real one.
+    region: process.env.S3_REGION || 'auto',
+    endpoint: process.env.S3_ENDPOINT,
+    // Path-style keeps signed URLs on the S3_ENDPOINT origin. Virtual-hosted
+    // style (the SDK default) would move them to <bucket>.<endpoint>, which the
+    // frontend CSP does not name — PDFs would render as a blank iframe with no
+    // error. R2 and B2 both support path-style; set S3_FORCE_PATH_STYLE=false
+    // only if moving to AWS S3, which is deprecating it.
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
     credentials: {
-      accessKeyId: process.env.R2_ACCESS_KEY_ID as string,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY as string,
+      accessKeyId: process.env.S3_ACCESS_KEY_ID as string,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY as string,
     },
   });
   return client;
@@ -88,7 +96,7 @@ export async function createUploadUrl(
   const uploadUrl = await getSignedUrl(
     storageClient(),
     new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET as string,
+      Bucket: process.env.S3_BUCKET as string,
       Key: key,
       ContentType: contentTypeFor(filename),
     }),
@@ -106,7 +114,7 @@ export async function createUploadUrl(
 export async function createDownloadUrl(key: string): Promise<string> {
   return getSignedUrl(
     storageClient(),
-    new GetObjectCommand({ Bucket: process.env.R2_BUCKET as string, Key: key }),
+    new GetObjectCommand({ Bucket: process.env.S3_BUCKET as string, Key: key }),
     { expiresIn: DOWNLOAD_URL_TTL_SECONDS }
   );
 }

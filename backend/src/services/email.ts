@@ -114,6 +114,56 @@ export async function sendVerificationEmail(
   });
 }
 
+/**
+ * Guardian consent request for an under-18 account (NDPA 2023 / POPIA / Ghana Act 843).
+ * Academic access is never gated on this — only Mentorship stays locked until the
+ * guardian confirms, so the learner is never blocked from studying.
+ */
+export async function sendGuardianConsentEmail(
+  to: string,
+  learnerName: string,
+  token: string
+): Promise<boolean> {
+  const confirmUrl = `${APP_URL}/guardian-consent?token=${token}`;
+
+  return sendEmail({
+    to,
+    subject: `Confirm ${escapeHtml(learnerName)}'s GIREAPP account`,
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="color: #3730A3; font-size: 28px; margin: 0;">GIREAPP</h1>
+          <p style="color: #64748B; font-size: 14px; margin-top: 4px;">Get It Right Edu App</p>
+        </div>
+        <h2 style="color: #0F172A; font-size: 20px;">A learner listed you as their guardian</h2>
+        <p style="color: #334155; font-size: 16px; line-height: 1.6;">
+          ${escapeHtml(learnerName)} has created a GIREAPP account and is under 18.
+          They can already study — courses, practice and progress are open to them.
+        </p>
+        <p style="color: #334155; font-size: 16px; line-height: 1.6;">
+          We only need your confirmation before they can use <strong>Mentorship</strong>,
+          which lets them speak with adult mentors.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${confirmUrl}"
+             style="display: inline-block; padding: 14px 32px; background: #3730A3; color: #FFFFFF;
+                    text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+            Confirm and allow Mentorship
+          </a>
+        </div>
+        <p style="color: #64748B; font-size: 14px;">
+          This link expires in 30 days. If you do not recognise this learner, simply ignore
+          this email — Mentorship stays switched off and no further action is taken.
+        </p>
+        <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 32px 0;" />
+        <p style="color: #94A3B8; font-size: 12px; text-align: center;">
+          © ${new Date().getFullYear()} GIREAPP — Enabling Academic Excellence Across Africa
+        </p>
+      </div>
+    `,
+  });
+}
+
 /** Send password reset link */
 export async function sendPasswordResetEmail(
   to: string,

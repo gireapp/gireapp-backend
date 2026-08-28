@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getLesson,
+  getCourse,
   completeLesson,
   enrolInCourse,
   listCourses,
@@ -11,6 +12,9 @@ const router = Router();
 
 // /api/courses?level=&department=
 router.get('/', requireAuth, listCourses);
+
+// /api/courses/:courseId
+router.get('/:courseId', requireAuth, getCourse);
 
 // /api/courses/:courseId/enrol
 router.post('/:courseId/enrol', requireAuth, enrolInCourse);

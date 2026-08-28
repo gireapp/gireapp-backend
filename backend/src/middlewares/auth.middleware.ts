@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { JwtPayload, Role } from '@gireapp/shared';
+import { calculateAge } from '@gireapp/shared';
 import { prisma } from '../services/prisma';
 import { JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE } from '../config/env';
 import { logger } from '../utils/logger';
@@ -118,4 +119,64 @@ export const requireStaff = (req: Request, res: Response, next: NextFunction): v
   }
 
   next();
+};
+
+/**
+ * Guardian-consent gate for Mentorship (NDPA 2023 / POPIA / Ghana Act 843).
+ * Runs after `requireAuth`. Academic access — courses, assessments, gamification —
+ * is never routed through this; only adult contact is.
+ *
+ * The live row decides rather than the JWT claim: a guardian confirms hours or
+ * days after the learner's 24h token was minted, and gating on the stale claim
+ * would leave Mentorship locked until the learner happened to log in again.
+ * Adults skip the lookup entirely on the strength of the token.
+ */
+export const requireGuardianConsent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const user = (req as AuthenticatedRequest).user;
+
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized.' });
+    return;
+  }
+
+  if (!user.isMinor) {
+    next();
+    return;
+  }
+
+  const row = await prisma.user.findUnique({
+    where: { id: user.userId },
+    select: { dateOfBirth: true, guardianConsentStatus: true },
+  });
+
+  if (!row) {
+    res.status(401).json({ error: 'Unauthorized: account not found.' });
+    return;
+  }
+
+  // Recomputed from the row so a learner who has since turned 18 is not held
+  // behind a consent gate that no longer applies to them.
+  const isMinor = row.dateOfBirth ? calculateAge(row.dateOfBirth) < 18 : false;
+
+  if (!isMinor || row.guardianConsentStatus === 'confirmed') {
+    next();
+    return;
+  }
+
+  logger.security('Mentorship blocked — guardian consent outstanding', {
+    userId: user.userId,
+    guardianConsentStatus: row.guardianConsentStatus,
+    path: req.originalUrl,
+    ip: req.ip,
+  });
+
+  res.status(403).json({
+    error:
+      'Mentorship needs a guardian to confirm this account first. Everything else stays available.',
+    guardianConsentStatus: row.guardianConsentStatus,
+  });
 };

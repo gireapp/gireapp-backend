@@ -3,7 +3,12 @@ import { prisma } from '../services/prisma';
 import { logger } from '../utils/logger';
 import { createDownloadUrl, isObjectKey, isStorageConfigured } from '../services/storage';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
-import type { BadgeType, AcademicLevel, CourseListItem } from '@gireapp/shared';
+import type {
+  BadgeType,
+  AcademicLevel,
+  CourseDetail,
+  CourseListItem,
+} from '@gireapp/shared';
 import { ACADEMIC_LEVELS } from '@gireapp/shared';
 
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
@@ -321,6 +326,97 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
   } catch (error) {
     logger.error('List courses error', {
       errorMessage: (error as Error).message,
+      userId: (req as AuthenticatedRequest).user?.userId || 'anonymous',
+    });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Full course tree for the overview screen: modules and lessons in order, each
+ * lesson flagged with whether this learner has finished it.
+ */
+export const getCourse = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { courseId } = req.params as { courseId: string };
+    const userId = (req as AuthenticatedRequest).user?.userId;
+
+    if (!userId || !courseId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, published: true, deletedAt: null },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        academicLevel: true,
+        department: true,
+        thumbnailUrl: true,
+        published: true,
+        modules: {
+          orderBy: { order: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            order: true,
+            lessons: {
+              orderBy: { order: 'asc' },
+              select: {
+                id: true,
+                title: true,
+                contentType: true,
+                estimatedMinutes: true,
+                order: true,
+                // Scoped to this learner, so `progress` is at most one row.
+                progress: { where: { userId }, select: { completed: true } },
+              },
+            },
+          },
+        },
+        enrolments: { where: { userId }, select: { progress: true } },
+      },
+    });
+
+    if (!course) {
+      res.status(404).json({ error: 'Course not found.' });
+      return;
+    }
+
+    const enrolment = course.enrolments[0];
+
+    const data: CourseDetail = {
+      id: course.id,
+      title: course.title,
+      description: course.description,
+      academicLevel: course.academicLevel,
+      department: course.department,
+      thumbnailUrl: course.thumbnailUrl,
+      published: course.published,
+      isEnrolled: Boolean(enrolment),
+      progress: enrolment?.progress ?? 0,
+      modules: course.modules.map((module) => ({
+        id: module.id,
+        title: module.title,
+        order: module.order,
+        lessons: module.lessons.map((lesson) => ({
+          id: lesson.id,
+          title: lesson.title,
+          contentType: lesson.contentType,
+          estimatedMinutes: lesson.estimatedMinutes,
+          order: lesson.order,
+          isCompleted: lesson.progress[0]?.completed ?? false,
+        })),
+      })),
+    };
+
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    logger.error('Get course error', {
+      errorMessage: (error as Error).message,
+      courseId: req.params.courseId,
       userId: (req as AuthenticatedRequest).user?.userId || 'anonymous',
     });
     res.status(500).json({ error: 'Internal server error' });

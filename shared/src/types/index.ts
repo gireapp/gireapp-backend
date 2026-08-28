@@ -31,6 +31,15 @@ export const DEPARTMENTS: Record<AcademicLevel, readonly string[]> = {
   PROFESSIONAL: ['Data Analytics', 'Project Management', 'Digital Marketing', 'Software Engineering'] as const,
 } as const;
 
+/**
+ * Guardian-consent tiered access gate for minor accounts (NDPA 2023 / POPIA / Ghana Act 843).
+ * 'not_required' — account is 18+. 'pending' — under 18, guardian confirmation email sent,
+ * Mentorship endpoints return 403 until confirmed. 'confirmed' — guardian clicked the
+ * one-click link. Academic access (courses/assessments/gamification) is never gated by this.
+ */
+export const GUARDIAN_CONSENT_STATUSES = ['not_required', 'pending', 'confirmed'] as const;
+export type GuardianConsentStatus = (typeof GUARDIAN_CONSENT_STATUSES)[number];
+
 // ── Session / Auth Types ──
 
 export interface SessionUser {
@@ -44,6 +53,8 @@ export interface SessionUser {
   points: number;
   image: string | null;
   isOnboardingComplete: boolean;
+  isMinor: boolean;
+  guardianConsentStatus: GuardianConsentStatus;
 }
 
 /** JWT payload structure (must match backend token signing) */
@@ -54,6 +65,8 @@ export interface JwtPayload {
   academicLevel: AcademicLevel | null;
   department: string | null;
   isOnboardingComplete: boolean;
+  isMinor: boolean;
+  guardianConsentStatus: GuardianConsentStatus;
   iat?: number;
   exp?: number;
   sub?: string;
