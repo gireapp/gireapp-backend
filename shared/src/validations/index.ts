@@ -9,9 +9,13 @@ import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
 // ── Auth Schemas ──
 
 /**
- * Age in whole years as of `reference` (defaults to now). Mirrors the backend's
- * `is_minor` generated column (`date_of_birth > CURRENT_DATE - INTERVAL '18 years'`)
- * so the frontend's minor/guardian-consent gating agrees with the DB.
+ * Age in whole years as of `reference` (defaults to now). The single definition of
+ * "minor" for both sides of the system: the backend derives `isMinor` from the
+ * stored `dateOfBirth` with this function on read rather than persisting a flag, so
+ * it cannot go stale as a learner turns 18.
+ *
+ * A Postgres generated column was considered and is not possible — `CURRENT_DATE`
+ * is not immutable, so it cannot appear in a `GENERATED ALWAYS AS` expression.
  */
 export function calculateAge(dob: Date, reference: Date = new Date()): number {
   let age = reference.getFullYear() - dob.getFullYear();
