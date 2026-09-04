@@ -5,6 +5,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
+import { TRUST_PROXY } from "./config/trust-proxy";
 import { globalLimiter } from "./middlewares/rateLimit.middleware";
 import { requestLogger } from "./middlewares/requestLogger.middleware";
 import { notFoundHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.middleware";
@@ -13,8 +14,9 @@ import { logger } from "./utils/logger";
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// Trust proxy for correct IP identification behind load balancers/Render/Heroku
-app.set('trust proxy', 1);
+// Correct client-IP identification behind Render's load balancers — the value
+// and the reasoning live in config/trust-proxy.ts, which the tests assert.
+app.set('trust proxy', TRUST_PROXY);
 
 // ── Security Middlewares (order matters) ──
 app.use(helmet({
@@ -58,9 +60,11 @@ app.get("/api/health", (req, res) => {
 import authRouter from "./routes/auth.routes";
 import courseRouter from "./routes/course.routes";
 import dashboardRouter from "./routes/dashboard.routes";
+import adminRouter from './routes/admin.routes';
 app.use("/api/auth", authRouter);
 app.use("/api/courses", courseRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/admin", adminRouter);
 
 // ── Error Handling (Phase 3 — MUST be after all routes) ──
 app.use(notFoundHandler);

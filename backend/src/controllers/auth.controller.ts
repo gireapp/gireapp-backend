@@ -8,8 +8,13 @@ import {
   resetPasswordSchema,
   resendVerificationSchema,
   onboardingSchema,
+  calculateAge,
 } from '@gireapp/shared';
-import type { AcademicLevel, SessionUser } from '@gireapp/shared';
+import type {
+  AcademicLevel,
+  SessionUser,
+  GuardianConsentStatus,
+} from '@gireapp/shared';
 import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import {
   signSessionToken,
@@ -18,7 +23,12 @@ import {
   hashToken,
 } from '../utils/token';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
-import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email';
+import { sessionUserSelect, toSessionUser } from '../utils/session-user';
+import {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  sendGuardianConsentEmail,
+} from '../services/email';
 import { logger } from '../utils/logger';
 
 /** Registration wizard `track` values → AcademicLevel enum */
@@ -40,36 +50,9 @@ const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 // Must NEVER be set in production — real users must verify their email.
 const SKIP_EMAIL_VERIFICATION = process.env.SKIP_EMAIL_VERIFICATION === 'true';
 
-const sessionUserSelect = {
-  id: true,
-  name: true,
-  email: true,
-  role: true,
-  academicLevel: true,
-  department: true,
-  moodTheme: true,
-  points: true,
-  image: true,
-} as const;
-
-type SessionUserRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: SessionUser['role'];
-  academicLevel: AcademicLevel | null;
-  department: string | null;
-  moodTheme: string | null;
-  points: number;
-  image: string | null;
-};
-
-function toSessionUser(user: SessionUserRow): SessionUser {
-  return {
-    ...user,
-    isOnboardingComplete: Boolean(user.academicLevel && user.department),
-  };
-}
+// Guardians often act days after the learner signs up, so this link outlives the
+// 24h email-verification window by a wide margin.
+const GUARDIAN_CONSENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Threat-detect + sanitise a request body; returns null (and responds 400) when blocked */
 function screenBody(req: Request, res: Response, context: string): unknown | null {
@@ -101,7 +84,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { name, email, password, track, department } = result.data;
+    const { name, email, password, track, department, dateOfBirth, guardianEmail } =
+      result.data;
 
     // ── 3. Check for duplicate email ──
     const existingUser = await prisma.user.findUnique({
@@ -120,6 +104,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     // ── 5. Generate verification token (hashed at rest, 24h expiry) ──
     const verification = generateOneTimeToken();
 
+    // ── 5b. Guardian consent: only under-18 accounts need it (NDPA 2023 / POPIA) ──
+    const dob = new Date(dateOfBirth);
+    const isMinor = calculateAge(dob) < 18;
+    // registerSchema already guarantees guardianEmail is present when isMinor.
+    const guardianConsent = isMinor ? generateOneTimeToken() : null;
+
     // ── 6. Map onboarding selection from the signup wizard ──
     const academicLevel = track ? TRACK_TO_ACADEMIC_LEVEL[track] ?? null : null;
 
@@ -134,11 +124,30 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         verificationToken: verification.hash,
         verificationExpiry: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
         emailVerified: SKIP_EMAIL_VERIFICATION ? new Date() : null,
+        dateOfBirth: dob,
+        guardianEmail: isMinor ? guardianEmail ?? null : null,
+        guardianConsentStatus: isMinor ? 'pending' : 'not_required',
+        guardianConsentToken: guardianConsent?.hash ?? null,
+        guardianConsentExpiry: guardianConsent
+          ? new Date(Date.now() + GUARDIAN_CONSENT_TOKEN_TTL_MS)
+          : null,
       },
       select: sessionUserSelect,
     });
 
     const sessionUser = toSessionUser(user);
+
+    // Guardian consent is independent of email verification, so it is requested
+    // here rather than inside either branch below. Fire-and-forget: a mail failure
+    // must not fail the registration, it only leaves Mentorship locked.
+    if (guardianConsent && guardianEmail) {
+      sendGuardianConsentEmail(guardianEmail, user.name, guardianConsent.raw).catch((err) => {
+        logger.error('Failed to send guardian consent email', {
+          errorMessage: (err as Error).message,
+          userId: user.id,
+        });
+      });
+    }
 
     // ── 8. Dev flag on: auto-login with { user, token } ──
     if (SKIP_EMAIL_VERIFICATION) {
@@ -149,13 +158,18 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         academicLevel: user.academicLevel,
         department: user.department,
         isOnboardingComplete: sessionUser.isOnboardingComplete,
+        isMinor: sessionUser.isMinor,
+        guardianConsentStatus: sessionUser.guardianConsentStatus,
       });
 
       setSessionCookie(res, token);
       res.status(201).json({
-        message: 'Account created successfully.',
-        user: sessionUser,
-        token,
+        success: true,
+        data: {
+          message: 'Account created successfully.',
+          user: sessionUser,
+          token,
+        },
       });
       return;
     }
@@ -169,8 +183,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     });
 
     res.status(201).json({
-      message: 'Account created successfully. Please check your inbox to verify your email address.',
-      user: sessionUser,
+      success: true,
+      data: {
+        message: 'Account created successfully. Please check your inbox to verify your email address.',
+        user: sessionUser,
+      },
     });
   } catch (error) {
     logger.error('Registration error', {
@@ -283,10 +300,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       academicLevel: user.academicLevel,
       department: user.department,
       isOnboardingComplete: sessionUser.isOnboardingComplete,
+      isMinor: sessionUser.isMinor,
+      guardianConsentStatus: sessionUser.guardianConsentStatus,
     });
 
     setSessionCookie(res, token);
-    res.status(200).json({ user: sessionUser, token });
+    res.status(200).json({ success: true, data: { user: sessionUser, token } });
   } catch (error) {
     logger.error('Login error', {
       errorMessage: (error as Error).message,
@@ -303,7 +322,7 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     sameSite: 'strict',
     expires: new Date(0), // Expire immediately
   });
-  res.status(200).json({ message: 'Logged out successfully' });
+  res.status(200).json({ success: true, data: { message: 'Logged out successfully' } });
 };
 
 export const me = async (req: Request, res: Response): Promise<void> => {
@@ -320,7 +339,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.status(200).json(toSessionUser(user));
+    res.status(200).json({ success: true, data: toSessionUser(user) });
   } catch (error) {
     logger.error('Me error', {
       errorMessage: (error as Error).message,
@@ -374,7 +393,8 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
 
     // Always 200 — enumeration-safe (the frontend assumes this)
     res.status(200).json({
-      message: 'If an account exists for that email, a reset link has been sent.',
+      success: true,
+      data: { message: 'If an account exists for that email, a reset link has been sent.' },
     });
   } catch (error) {
     logger.error('Forgot-password error', {
@@ -418,23 +438,100 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
 
     const passwordHash = await hash(password, 12);
 
-    // Single-use: clear the token alongside the new hash
+    // Single-use: clear the token alongside the new hash. Stamping
+    // passwordChangedAt retires every token minted before now, so a reset ends
+    // any session an attacker was already holding — and clears the lockout,
+    // since the legitimate owner has just proven control of the inbox.
     await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
         resetToken: null,
         resetTokenExpiry: null,
+        passwordChangedAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
     });
 
-    res.status(200).json({ message: 'Password reset successfully. You can now log in.' });
+    logger.security('Password reset — existing sessions invalidated', {
+      userId: user.id,
+      ip: req.ip,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Password reset successfully. You can now log in.' },
+    });
   } catch (error) {
     logger.error('Reset-password error', {
       errorMessage: (error as Error).message,
       ip: req.ip,
     });
     res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * One-click guardian confirmation. Deliberately idempotent-friendly: an already
+ * confirmed link reports success rather than an error, because guardians commonly
+ * click the same email twice and a scary failure page is worse than a no-op.
+ */
+export const confirmGuardianConsent = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sanitizedBody = screenBody(req, res, 'Guardian-consent');
+    if (sanitizedBody === null) return;
+
+    const token = (sanitizedBody as { token?: unknown })?.token;
+    if (typeof token !== 'string' || token.length === 0) {
+      res.status(400).json({ error: 'Consent token is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        guardianConsentToken: hashToken(token),
+        guardianConsentExpiry: { gt: new Date() },
+        deletedAt: null,
+      },
+      select: { id: true, name: true, guardianConsentStatus: true },
+    });
+
+    if (!user) {
+      res.status(400).json({ error: 'This consent link is invalid or has expired.' });
+      return;
+    }
+
+    if (user.guardianConsentStatus === 'confirmed') {
+      res.status(200).json({
+        success: true,
+        data: { message: 'Consent already confirmed. Nothing further is needed.', name: user.name },
+      });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        guardianConsentStatus: 'confirmed',
+        guardianConsentAt: new Date(),
+        // Burn the token so the link cannot be replayed.
+        guardianConsentToken: null,
+        guardianConsentExpiry: null,
+      },
+    });
+
+    logger.info('Guardian consent confirmed', { userId: user.id });
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Thank you — Mentorship is now available.', name: user.name },
+    });
+  } catch (error) {
+    logger.error('Guardian-consent error', {
+      errorMessage: (error as Error).message,
+    });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 };
 
@@ -475,8 +572,11 @@ export const verifyEmail = async (req: Request, res: Response): Promise<void> =>
     });
 
     res.status(200).json({
-      message: 'Email verified successfully. You can now log in.',
-      name: user.name,
+      success: true,
+      data: {
+        message: 'Email verified successfully. You can now log in.',
+        name: user.name,
+      },
     });
   } catch (error) {
     logger.error('Verify-email error', {
@@ -516,12 +616,12 @@ export const resendVerification = async (req: Request, res: Response): Promise<v
 
     if (!user) {
       logger.security('Verification resend requested for unknown email', { ip: req.ip });
-      res.status(200).json(neutralResponse);
+      res.status(200).json({ success: true, data: neutralResponse });
       return;
     }
 
     if (user.emailVerified) {
-      res.status(200).json(neutralResponse);
+      res.status(200).json({ success: true, data: neutralResponse });
       return;
     }
 
@@ -534,7 +634,7 @@ export const resendVerification = async (req: Request, res: Response): Promise<v
           userId: user.id,
           ip: req.ip,
         });
-        res.status(200).json(neutralResponse);
+        res.status(200).json({ success: true, data: neutralResponse });
         return;
       }
     }
@@ -558,7 +658,7 @@ export const resendVerification = async (req: Request, res: Response): Promise<v
       });
     });
 
-    res.status(200).json(neutralResponse);
+    res.status(200).json({ success: true, data: neutralResponse });
   } catch (error) {
     logger.error('Resend-verification error', {
       errorMessage: (error as Error).message,
@@ -601,10 +701,12 @@ export const onboarding = async (req: Request, res: Response): Promise<void> => 
       academicLevel: user.academicLevel,
       department: user.department,
       isOnboardingComplete: sessionUser.isOnboardingComplete,
+      isMinor: sessionUser.isMinor,
+      guardianConsentStatus: sessionUser.guardianConsentStatus,
     });
 
     setSessionCookie(res, token);
-    res.status(200).json({ user: sessionUser, token });
+    res.status(200).json({ success: true, data: { user: sessionUser, token } });
   } catch (error) {
     logger.error('Onboarding error', {
       errorMessage: (error as Error).message,

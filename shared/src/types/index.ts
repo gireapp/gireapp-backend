@@ -31,6 +31,15 @@ export const DEPARTMENTS: Record<AcademicLevel, readonly string[]> = {
   PROFESSIONAL: ['Data Analytics', 'Project Management', 'Digital Marketing', 'Software Engineering'] as const,
 } as const;
 
+/**
+ * Guardian-consent tiered access gate for minor accounts (NDPA 2023 / POPIA / Ghana Act 843).
+ * 'not_required' — account is 18+. 'pending' — under 18, guardian confirmation email sent,
+ * Mentorship endpoints return 403 until confirmed. 'confirmed' — guardian clicked the
+ * one-click link. Academic access (courses/assessments/gamification) is never gated by this.
+ */
+export const GUARDIAN_CONSENT_STATUSES = ['not_required', 'pending', 'confirmed'] as const;
+export type GuardianConsentStatus = (typeof GUARDIAN_CONSENT_STATUSES)[number];
+
 // ── Session / Auth Types ──
 
 export interface SessionUser {
@@ -44,6 +53,8 @@ export interface SessionUser {
   points: number;
   image: string | null;
   isOnboardingComplete: boolean;
+  isMinor: boolean;
+  guardianConsentStatus: GuardianConsentStatus;
 }
 
 /** JWT payload structure (must match backend token signing) */
@@ -54,6 +65,8 @@ export interface JwtPayload {
   academicLevel: AcademicLevel | null;
   department: string | null;
   isOnboardingComplete: boolean;
+  isMinor: boolean;
+  guardianConsentStatus: GuardianConsentStatus;
   iat?: number;
   exp?: number;
   sub?: string;
@@ -81,12 +94,40 @@ export interface PaginatedResponse<T> {
 
 // ── Dashboard Types ──
 
+export interface DashboardStats {
+  /** Every attempt ever, not the truncated `recentActivity` slice. */
+  quizzesTaken: number;
+  /** Mean score across all attempts, 0–100. `null` until the first attempt. */
+  averageScore: number | null;
+  /** Points earned in the last 7 days, derived from attempts in that window. */
+  weeklyPoints: number;
+  /**
+   * Standing among learners at the same academic level, as a percentage —
+   * 10 means "top 10%". `null` when the learner has no points or has too few
+   * peers for a ranking to mean anything.
+   */
+  rankPercentile: number | null;
+}
+
+/** The next quiz in an enrolled course that the learner hasn't attempted. */
+export interface NextQuiz {
+  id: string;
+  courseId: string;
+  title: string;
+  /** Always null for now — quizzes carry no due date in the schema. */
+  dueDate: string | null;
+}
+
 export interface DashboardOverview {
   profile: SessionUser;
   totalPoints: number;
   badgeCount: number;
   activeCourses: CourseCard[];
+  /** Published courses at the learner's level that they have not enrolled in. */
+  recommendedCourses: CourseCard[];
   recentActivity: ActivityItem[];
+  stats: DashboardStats;
+  nextQuiz: NextQuiz | null;
 }
 
 export interface CourseCard {
@@ -98,6 +139,16 @@ export interface CourseCard {
   lessonCount: number;
   progress: number; // 0.0 to 1.0
   estimatedMinutes: number;
+}
+
+/**
+ * A course as it appears in a listing: counts rather than the full module tree,
+ * plus whether the caller has already joined. `CourseDetail` carries the tree.
+ */
+export interface CourseListItem extends CourseCard {
+  department: string;
+  academicLevel: AcademicLevel;
+  isEnrolled: boolean;
 }
 
 export interface ActivityItem {

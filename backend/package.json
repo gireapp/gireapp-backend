@@ -15,7 +15,11 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:purge-test-users": "tsx scripts/purge-test-users.ts",
+    "email:test": "tsx scripts/send-test-email.ts",
+    "scan:injected": "node scripts/scan-injected-code.mjs ..",
+    "audit:gate": "node scripts/audit-gate.mjs --dir .."
   },
   "dependencies": {
     "@gireapp/shared": "file:../shared",

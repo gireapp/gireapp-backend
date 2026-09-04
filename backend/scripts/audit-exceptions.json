@@ -1,0 +1,23 @@
+{
+  "$comment": "Advisories knowingly accepted, each with a reason and an expiry. An expired entry FAILS the build on purpose: an exception you never revisit is just a hole you stopped looking at. Remove an entry the moment the underlying fix lands.",
+  "exceptions": [
+    {
+      "package": "deepmerge-ts",
+      "advisory": "DeepmergeTS stack exhaustion when merging recursive object graphs",
+      "expires": "2026-10-31",
+      "reason": "Reached only via prisma -> @prisma/config, the migration CLI, which runs at build time and merges our own prisma.config file. No request path touches it, so there is no attacker-supplied input to exhaust the stack with. The patched deepmerge-ts 8.x arrives only with Prisma 7, a major upgrade we are not doing days before launch; an npm `overrides` pin is silently ignored at a workspace root (npm 11.6). Scheduled with the Prisma 7 upgrade after launch."
+    },
+    {
+      "package": "@prisma/config",
+      "advisory": "Depends on vulnerable deepmerge-ts",
+      "expires": "2026-10-31",
+      "reason": "Transitive carrier of the deepmerge-ts advisory above; same reasoning, same fix, same date."
+    },
+    {
+      "package": "prisma",
+      "advisory": "Depends on vulnerable @prisma/config",
+      "expires": "2026-10-31",
+      "reason": "Transitive carrier of the deepmerge-ts advisory above. devDependency: the CLI, not the runtime client. @prisma/client is unaffected."
+    }
+  ]
+}
