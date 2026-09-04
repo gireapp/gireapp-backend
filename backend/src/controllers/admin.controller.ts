@@ -8,6 +8,7 @@ import {
   allowedUploadExtensions,
   createUploadUrl,
   isAllowedUpload,
+  isMintedObjectKey,
   isStorageConfigured,
 } from '../services/storage';
 
@@ -106,9 +107,10 @@ export const getUploadUrl = async (req: Request, res: Response): Promise<void> =
 export const attachLessonMedia = async (req: Request, res: Response): Promise<void> => {
   try {
     const { lessonId } = req.params as { lessonId: string };
+    const user = (req as AuthenticatedRequest).user;
     const key = typeof req.body?.key === 'string' ? req.body.key : '';
 
-    if (!key.startsWith('lessons/')) {
+    if (!isMintedObjectKey(key)) {
       res.status(422).json({
         error: 'Validation failed.',
         errors: { key: ['key must be an object key returned by /upload-url'] },
@@ -116,11 +118,22 @@ export const attachLessonMedia = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const lesson = await prisma.lesson.findUnique({
-      where: { id: lessonId },
+    // A tutor may only re-point media on a lesson in a course they authored;
+    // admins may touch any. Without this, one tutor could swap an admin's
+    // lesson PDF for their own file, which is then signed and served to every
+    // enrolled learner from the app's own storage.
+    const lesson = await prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        ...(user.role === 'ADMIN'
+          ? {}
+          : { module: { course: { createdById: user.userId } } }),
+      },
       select: { id: true },
     });
 
+    // Deliberately 404 rather than 403: a tutor should not be able to probe
+    // which lesson ids exist in courses that are not theirs.
     if (!lesson) {
       res.status(404).json({ error: 'Lesson not found.' });
       return;

@@ -49,6 +49,27 @@ export function buildObjectKey(filename: string): string {
 }
 
 /**
+ * The exact shape `buildObjectKey` mints, kept beside it so the two cannot drift.
+ *
+ * The browser uploads straight to storage and reports the key back, so the key
+ * reaches the server as untrusted input and must be provably one this server
+ * issued. A prefix test is not enough: `lessons/../billing/export.pdf` starts
+ * with `lessons/`, and whatever is stored is later signed into a download URL
+ * and served to every enrolled learner.
+ */
+const MINTED_OBJECT_KEY = new RegExp(
+  `^lessons/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:${Object.keys(
+    ALLOWED_UPLOAD_TYPES,
+  )
+    .map((extension) => extension.replace('.', '\\.'))
+    .join('|')})$`,
+);
+
+export function isMintedObjectKey(key: string): boolean {
+  return MINTED_OBJECT_KEY.test(key);
+}
+
+/**
  * Legacy rows and seeded fixtures hold a ready-made path or absolute URL; R2
  * uploads hold a bare object key. Only the latter needs signing.
  */

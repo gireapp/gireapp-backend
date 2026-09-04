@@ -3,6 +3,7 @@ import {
   extensionOf,
   isAllowedUpload,
   buildObjectKey,
+  isMintedObjectKey,
   isObjectKey,
 } from '../../services/storage';
 
@@ -65,4 +66,50 @@ describe('isObjectKey', () => {
     'leaves the ready-made location %s alone',
     (value) => expect(isObjectKey(value)).toBe(false)
   );
+});
+
+/**
+ * The browser uploads straight to storage and hands the key back, so
+ * `attachLessonMedia` receives it as untrusted input. Whatever is stored is
+ * later signed into a download URL for every enrolled learner, so the key has
+ * to be provably one this server minted — a `lessons/` prefix test is not.
+ */
+describe('isMintedObjectKey', () => {
+  it.each(['notes.pdf', 'clip.mp4', 'clip.webm', 'clip.mov'])(
+    'accepts the key it just minted for %s',
+    (filename) => expect(isMintedObjectKey(buildObjectKey(filename))).toBe(true)
+  );
+
+  it('rejects a traversal that satisfies a prefix check', () => {
+    expect(isMintedObjectKey('lessons/../billing/export.pdf')).toBe(false);
+  });
+
+  it.each([
+    'lessons/anything.pdf', // not a UUID
+    'lessons/2f1a-4c.pdf', // truncated UUID
+    'lessons/8f14e45f-ceea-467a-9f5a-8b0a1f0a1b2c.exe', // disallowed type
+    'lessons/8f14e45f-ceea-467a-9f5a-8b0a1f0a1b2c.pdf.exe', // double extension
+    'lessons/8f14e45f-ceea-467a-9f5a-8b0a1f0a1b2c.pdf/../../secret', // suffixed
+    'billing/8f14e45f-ceea-467a-9f5a-8b0a1f0a1b2c.pdf', // outside the namespace
+    'lessons/8F14E45F-CEEA-467A-9F5A-8B0A1F0A1B2C.pdf', // not what randomUUID emits
+    '',
+  ])('rejects %s', (key) => expect(isMintedObjectKey(key)).toBe(false));
+
+  it('anchors both ends so a valid key cannot be smuggled inside a longer one', () => {
+    const valid = buildObjectKey('notes.pdf');
+
+    expect(isMintedObjectKey(`x${valid}`)).toBe(false);
+    expect(isMintedObjectKey(`${valid}x`)).toBe(false);
+    expect(isMintedObjectKey(`${valid}\n${valid}`)).toBe(false);
+  });
+
+  it('rejects a trailing newline', () => {
+    // JavaScript's `$` does not match before a trailing newline the way Perl's
+    // and Python's do — but adding an `m` flag to the pattern would change that
+    // and quietly reopen the hole, so pin the behaviour.
+    const valid = buildObjectKey('notes.pdf');
+
+    expect(isMintedObjectKey(`${valid}\n`)).toBe(false);
+    expect(isMintedObjectKey(`${valid}\r\n`)).toBe(false);
+  });
 });
