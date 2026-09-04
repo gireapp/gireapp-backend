@@ -8,25 +8,6 @@ import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
 
 // ── Auth Schemas ──
 
-/**
- * Age in whole years as of `reference` (defaults to now). The single definition of
- * "minor" for both sides of the system: the backend derives `isMinor` from the
- * stored `dateOfBirth` with this function on read rather than persisting a flag, so
- * it cannot go stale as a learner turns 18.
- *
- * A Postgres generated column was considered and is not possible — `CURRENT_DATE`
- * is not immutable, so it cannot appear in a `GENERATED ALWAYS AS` expression.
- */
-export function calculateAge(dob: Date, reference: Date = new Date()): number {
-  let age = reference.getFullYear() - dob.getFullYear();
-  const monthDiff = reference.getMonth() - dob.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && reference.getDate() < dob.getDate())) {
-    age -= 1;
-  }
-  return age;
-}
-
-
 export const registerSchema = z.object({
   name: z
     .string()
@@ -47,37 +28,14 @@ export const registerSchema = z.object({
       'Password must contain at least one uppercase letter, one lowercase letter, and one number'
     ),
   confirmPassword: z.string(),
-  dateOfBirth: z
-    .string()
-    .min(1, 'Date of birth is required')
-    .refine((v) => !Number.isNaN(Date.parse(v)), 'Please enter a valid date')
-    .refine((v) => new Date(v) <= new Date(), 'Date of birth cannot be in the future')
-    .refine((v) => calculateAge(new Date(v)) <= 120, 'Please enter a valid date of birth'),
-  // Only required for under-18 accounts, enforced by the whole-object refine below.
-  guardianEmail: z
-    .union([z.string().trim().email('Please enter a valid guardian email address'), z.literal('')])
-    .optional()
-    .transform((v) => (v ? v : undefined)),
   track: z.string().optional(),
   department: z.string().optional(),
   level: z.string().optional(),
   focusArea: z.string().optional(),
-})
-  .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  })
-  .refine(
-    (data) => {
-      const dob = new Date(data.dateOfBirth);
-      if (Number.isNaN(dob.getTime())) return true; // dateOfBirth's own validation already reports this
-      return calculateAge(dob) >= 18 || !!data.guardianEmail;
-    },
-    {
-      message: 'A guardian email is required for accounts under 18',
-      path: ['guardianEmail'],
-    }
-  );
+}).refine((data) => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 

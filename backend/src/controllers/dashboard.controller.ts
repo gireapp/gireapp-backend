@@ -1,95 +1,36 @@
 import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
-import { sessionUserSelect, toSessionUser } from '../utils/session-user';
 import type {
   ActivityItem,
-  AcademicLevel,
   CourseCard,
   DashboardOverview,
-  NextQuiz,
   SessionUser,
 } from '@gireapp/shared';
-import { POINTS } from '@gireapp/shared';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 
 const RECENT_ACTIVITY_LIMIT = 10;
-const WEEKLY_WINDOW_DAYS = 7;
-const RECOMMENDED_COURSE_LIMIT = 3;
-
-/** Below this many peers a percentile says more about cohort size than merit. */
-const MIN_PEERS_FOR_RANK = 5;
-
-function startOfWeeklyWindow(now = new Date()): Date {
-  return new Date(now.getTime() - WEEKLY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-}
-
-/**
- * There is no points ledger — `User.points` is a running total — so the weekly
- * figure is rebuilt from the attempts inside the window using the same award
- * table that granted them.
- */
-export function sumAttemptPoints(
-  attempts: { score: number; quiz: { passingScore: number } }[]
-): number {
-  return attempts.reduce(
-    (total, attempt) =>
-      total +
-      (attempt.score >= attempt.quiz.passingScore ? POINTS.QUIZ_PASS : POINTS.QUIZ_FAIL),
-    0
-  );
-}
-
-/**
- * Where a learner sits among peers, as a percentage — 10 means "top 10%".
- * `ahead` counts peers with strictly more points; the +1s include the learner
- * themselves, so a clear leader lands inside the top slice rather than at 0%.
- * Null when the cohort is too small for the number to carry meaning.
- */
-export function rankPercentileFrom(ahead: number, peerCount: number): number | null {
-  if (peerCount < MIN_PEERS_FOR_RANK) return null;
-  return Math.ceil(((ahead + 1) / (peerCount + 1)) * 100);
-}
-
-async function calculateRankPercentile(
-  userId: string,
-  academicLevel: AcademicLevel | null,
-  points: number
-): Promise<number | null> {
-  // An unscored learner has no standing to report.
-  if (points <= 0 || !academicLevel) return null;
-
-  const peerFilter = { academicLevel, deletedAt: null, id: { not: userId } };
-
-  const [peerCount, ahead] = await Promise.all([
-    prisma.user.count({ where: peerFilter }),
-    prisma.user.count({ where: { ...peerFilter, points: { gt: points } } }),
-  ]);
-
-  return rankPercentileFrom(ahead, peerCount);
-}
 
 export const getDashboard = async (req: Request, res: Response): Promise<void> => {
   try {
     const payload = (req as AuthenticatedRequest).user;
     const userId = payload.userId;
 
-    const [
-      user,
-      enrolments,
-      badgeCount,
-      recentLessons,
-      recentAttempts,
-      recentBadges,
-      quizzesTaken,
-      scoreAggregate,
-      weeklyAttempts,
-      recommendedRows,
-      nextQuizRow,
-    ] = await Promise.all([
+    const [user, enrolments, badgeCount, recentLessons, recentAttempts, recentBadges] =
+      await Promise.all([
         prisma.user.findUnique({
           where: { id: userId, deletedAt: null },
-          select: sessionUserSelect,
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            academicLevel: true,
+            department: true,
+            moodTheme: true,
+            points: true,
+            image: true,
+          },
         }),
         prisma.enrolment.findMany({
           where: { userId, course: { deletedAt: null, published: true } },
@@ -128,51 +69,6 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
           orderBy: { earnedAt: 'desc' },
           take: RECENT_ACTIVITY_LIMIT,
         }),
-        // Counted rather than derived from recentActivity, which is truncated
-        // to RECENT_ACTIVITY_LIMIT and so undercounts an active learner.
-        prisma.quizAttempt.count({ where: { userId } }),
-        prisma.quizAttempt.aggregate({
-          where: { userId },
-          _avg: { score: true },
-        }),
-        prisma.quizAttempt.findMany({
-          where: { userId, submittedAt: { gte: startOfWeeklyWindow() } },
-          select: { score: true, quiz: { select: { passingScore: true } } },
-        }),
-        // Courses at the learner's level they have NOT joined — the panel is
-        // "recommended", so enrolments belong in activeCourses, not here.
-        prisma.course.findMany({
-          where: {
-            published: true,
-            deletedAt: null,
-            enrolments: { none: { userId } },
-            // Filter in the query, not after: taking N rows first would let
-            // courses at other levels crowd out the learner's own.
-            ...(payload.academicLevel ? { academicLevel: payload.academicLevel } : {}),
-          },
-          orderBy: { createdAt: 'desc' },
-          take: RECOMMENDED_COURSE_LIMIT,
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            thumbnailUrl: true,
-            academicLevel: true,
-            modules: { select: { lessons: { select: { estimatedMinutes: true } } } },
-          },
-        }),
-        prisma.quiz.findFirst({
-          where: {
-            course: {
-              deletedAt: null,
-              published: true,
-              enrolments: { some: { userId } },
-            },
-            attempts: { none: { userId } },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { id: true, courseId: true, title: true },
-        }),
       ]);
 
     if (!user) {
@@ -180,7 +76,10 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const profile: SessionUser = toSessionUser(user);
+    const profile: SessionUser = {
+      ...user,
+      isOnboardingComplete: Boolean(user.academicLevel && user.department),
+    };
 
     const activeCourses: CourseCard[] = enrolments.map((enrolment) => {
       const lessons = enrolment.course.modules.flatMap((m) => m.lessons);
@@ -226,53 +125,15 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, RECENT_ACTIVITY_LIMIT);
 
-    const averageScore = scoreAggregate._avg.score;
-
-    const nextQuiz: NextQuiz | null = nextQuizRow
-      ? {
-          id: nextQuizRow.id,
-          courseId: nextQuizRow.courseId,
-          title: nextQuizRow.title,
-          // Quizzes carry no due date in the schema yet.
-          dueDate: null,
-        }
-      : null;
-
-    const recommendedCourses: CourseCard[] = recommendedRows.map((course) => {
-      const lessons = course.modules.flatMap((m) => m.lessons);
-      return {
-        id: course.id,
-        title: course.title,
-        description: course.description,
-        thumbnailUrl: course.thumbnailUrl,
-        moduleCount: course.modules.length,
-        lessonCount: lessons.length,
-        progress: 0,
-        estimatedMinutes: lessons.reduce((sum, l) => sum + l.estimatedMinutes, 0),
-      };
-    });
-
     const overview: DashboardOverview = {
       profile,
       totalPoints: user.points,
       badgeCount,
       activeCourses,
-      recommendedCourses,
       recentActivity,
-      stats: {
-        quizzesTaken,
-        averageScore: averageScore === null ? null : Math.round(averageScore),
-        weeklyPoints: sumAttemptPoints(weeklyAttempts),
-        rankPercentile: await calculateRankPercentile(
-          userId,
-          user.academicLevel,
-          user.points
-        ),
-      },
-      nextQuiz,
     };
 
-    res.status(200).json({ success: true, data: overview });
+    res.status(200).json(overview);
   } catch (error) {
     logger.error('Dashboard error', {
       errorMessage: (error as Error).message,
