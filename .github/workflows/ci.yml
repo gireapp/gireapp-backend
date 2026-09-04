@@ -28,8 +28,12 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    # Blocks on high/critical, minus the dated exceptions in
+    # backend/scripts/audit-exceptions.json. Plain `npm audit --audit-level=high`
+    # cannot express "build-time CLI, no request path", so keeping it meant
+    # either lowering the bar for everything or deleting the gate.
     - name: Audit dependencies
-      run: npm audit --audit-level=high
+      run: node backend/scripts/audit-gate.mjs
 
     - name: Build shared package
       run: npm run build --workspace=shared
