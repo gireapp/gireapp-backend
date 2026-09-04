@@ -6,17 +6,14 @@
 import { createHash, randomBytes } from 'crypto';
 import { Response } from 'express';
 import jwt from 'jsonwebtoken';
-import type { AcademicLevel, Role } from '@gireapp/shared';
+import type { JwtPayload } from '@gireapp/shared';
 import { JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE } from '../config/env';
 
-export interface SessionClaims {
-  userId: string;
-  role: Role;
-  email: string;
-  academicLevel: AcademicLevel | null;
-  department: string | null;
-  isOnboardingComplete: boolean;
-}
+/**
+ * Derived from the shared JwtPayload rather than hand-copied, so the two cannot
+ * drift: iat/exp/sub are added by jsonwebtoken at signing time.
+ */
+export type SessionClaims = Omit<JwtPayload, 'iat' | 'exp' | 'sub'>;
 
 /** Sign the session JWT — payload must exactly match the shared `JwtPayload` contract */
 export function signSessionToken(claims: SessionClaims): string {

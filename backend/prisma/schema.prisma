@@ -22,6 +22,14 @@ enum Role {
   ADMIN
 }
 
+/// Mirrors GuardianConsentStatus in @gireapp/shared — values must stay identical,
+/// they are serialised straight into the JWT and API responses.
+enum GuardianConsentStatus {
+  not_required
+  pending
+  confirmed
+}
+
 enum AcademicLevel {
   SECONDARY
   TERTIARY
@@ -45,37 +53,51 @@ enum BadgeType {
 // ── User ──
 
 model User {
-  id            String        @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String
-  email         String        @unique
+  email         String         @unique
   passwordHash  String
-  role          Role          @default(STUDENT)
+  role          Role           @default(STUDENT)
   academicLevel AcademicLevel?
-  department    String?       // e.g., "Science", "Undergraduate", "Data Analytics"
-  moodTheme     String?       @default("calm")
-  points        Int           @default(0)
+  department    String? // e.g., "Science", "Undergraduate", "Data Analytics"
+  moodTheme     String?        @default("calm")
+  points        Int            @default(0)
   emailVerified DateTime?
-  image         String?
-  deletedAt     DateTime?     // Soft delete (M5: BE-ADMIN-005)
+
+  // ── Guardian consent (NDPA 2023 / POPIA / Ghana Act 843) ──
+  // isMinor is derived from dateOfBirth at read time, never stored, so it cannot
+  // go stale. Nullable because rows predating this feature have no DOB.
+  dateOfBirth           DateTime?             @db.Date
+  guardianEmail         String?
+  guardianConsentStatus GuardianConsentStatus @default(not_required)
+  guardianConsentToken  String?               @unique
+  guardianConsentExpiry DateTime?
+  guardianConsentAt     DateTime?
+  image                 String?
+  deletedAt             DateTime? // Soft delete (M5: BE-ADMIN-005)
 
   // Verification & reset tokens
-  verificationToken String?   @unique
+  verificationToken  String?   @unique
   verificationExpiry DateTime?
-  resetToken        String?   @unique
-  resetTokenExpiry  DateTime?
+  resetToken         String?   @unique
+  resetTokenExpiry   DateTime?
 
   // Brute-force protection (per-account lockout)
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
+  // Session cut-off: tokens minted before this instant are rejected by
+  // requireAuth, so a password reset ends every session already in flight.
+  passwordChangedAt DateTime?
+
   // Relations
-  enrolments    Enrolment[]
-  quizAttempts  QuizAttempt[]
-  badges        UserBadge[]
+  enrolments     Enrolment[]
+  quizAttempts   QuizAttempt[]
+  badges         UserBadge[]
   lessonProgress LessonProgress[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([academicLevel, department])
   @@index([email])
@@ -90,19 +112,19 @@ model Course {
   title         String
   description   String        @db.Text
   academicLevel AcademicLevel
-  department    String        // Must match user's department for filtering
+  department    String // Must match user's department for filtering
   thumbnailUrl  String?
   published     Boolean       @default(false)
-  createdById   String?       // Tutor/Admin who created
-  deletedAt     DateTime?     // Soft delete
+  createdById   String? // Tutor/Admin who created
+  deletedAt     DateTime? // Soft delete
 
   // Relations
-  modules       Module[]
-  enrolments    Enrolment[]
-  quizzes       Quiz[]
+  modules    Module[]
+  enrolments Enrolment[]
+  quizzes    Quiz[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([academicLevel, department])
   @@index([published])
@@ -112,14 +134,14 @@ model Course {
 // ── Module ──
 
 model Module {
-  id       String   @id @default(cuid())
-  courseId  String
+  id       String @id @default(cuid())
+  courseId String
   title    String
-  order    Int      @default(0)
+  order    Int    @default(0)
 
   // Relations
-  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessons  Lesson[]
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -135,17 +157,17 @@ model Lesson {
   moduleId         String
   title            String
   contentType      ContentType @default(TEXT)
-  content          String?     @db.Text  // For TEXT/MARKDOWN
-  mediaUrl         String?               // For PDF/VIDEO (S3 URL)
+  content          String?     @db.Text // For TEXT/MARKDOWN
+  mediaUrl         String? // For PDF/VIDEO (S3 URL)
   order            Int         @default(0)
   estimatedMinutes Int         @default(10)
 
   // Relations
-  module           Module      @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  progress         LessonProgress[]
+  module   Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress LessonProgress[]
 
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([moduleId, order])
   @@map("lessons")
@@ -154,14 +176,14 @@ model Lesson {
 // ── Enrolment ──
 
 model Enrolment {
-  id        String   @id @default(cuid())
-  userId    String
-  courseId   String
-  progress  Float    @default(0) // 0.0 to 1.0
+  id       String @id @default(cuid())
+  userId   String
+  courseId String
+  progress Float  @default(0) // 0.0 to 1.0
 
   // Relations
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -173,14 +195,14 @@ model Enrolment {
 // ── Lesson Progress ──
 
 model LessonProgress {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   userId    String
   lessonId  String
-  completed Boolean  @default(true)
+  completed Boolean @default(true)
 
   // Relations
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -192,20 +214,20 @@ model LessonProgress {
 // ── Quiz ──
 
 model Quiz {
-  id           String   @id @default(cuid())
-  courseId      String
+  id           String  @id @default(cuid())
+  courseId     String
   title        String
   description  String?
-  timeLimitMin Int      @default(30) // Timer enforcement (M4)
-  passingScore Int      @default(70) // Percentage to pass
+  timeLimitMin Int     @default(30) // Timer enforcement (M4)
+  passingScore Int     @default(70) // Percentage to pass
 
   // Relations
-  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  questions    Question[]
-  attempts     QuizAttempt[]
+  course    Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  questions Question[]
+  attempts  QuizAttempt[]
 
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([courseId])
   @@map("quizzes")
@@ -214,18 +236,18 @@ model Quiz {
 // ── Question ──
 
 model Question {
-  id           String         @id @default(cuid())
-  quizId       String
-  text         String         @db.Text
-  explanation  String?        @db.Text // Shown after grading
-  order        Int            @default(0)
+  id          String  @id @default(cuid())
+  quizId      String
+  text        String  @db.Text
+  explanation String? @db.Text // Shown after grading
+  order       Int     @default(0)
 
   // Relations
-  quiz         Quiz           @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  choices      AnswerChoice[]
+  quiz    Quiz           @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  choices AnswerChoice[]
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([quizId, order])
   @@map("questions")
@@ -234,14 +256,14 @@ model Question {
 // ── Answer Choice ──
 
 model AnswerChoice {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   questionId String
   text       String
-  isCorrect  Boolean  @default(false)
-  order      Int      @default(0)
+  isCorrect  Boolean @default(false)
+  order      Int     @default(0)
 
   // Relations
-  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@index([questionId])
   @@map("answer_choices")
@@ -250,22 +272,22 @@ model AnswerChoice {
 // ── Quiz Attempt ──
 
 model QuizAttempt {
-  id          String   @id @default(cuid())
-  userId      String
-  quizId      String
-  score       Int      // Percentage 0–100
-  totalRight  Int
-  totalWrong  Int
-  answers     Json     // { questionId: choiceId } map
-  startedAt   DateTime @default(now())
-  submittedAt DateTime @default(now())
-  timeTakenSec Int?    // Actual seconds spent
+  id           String   @id @default(cuid())
+  userId       String
+  quizId       String
+  score        Int // Percentage 0–100
+  totalRight   Int
+  totalWrong   Int
+  answers      Json // { questionId: choiceId } map
+  startedAt    DateTime @default(now())
+  submittedAt  DateTime @default(now())
+  timeTakenSec Int? // Actual seconds spent
 
   // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, quizId])
   @@index([quizId])
@@ -278,11 +300,11 @@ model UserBadge {
   id        String    @id @default(cuid())
   userId    String
   badgeType BadgeType
-  courseId   String?   // Which course the badge was earned for
+  courseId  String? // Which course the badge was earned for
   earnedAt  DateTime  @default(now())
 
   // Relations
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeType, courseId])
   @@map("user_badges")
