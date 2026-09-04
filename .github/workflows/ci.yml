@@ -1,10 +1,11 @@
 name: Backend CI
 
+# Every branch, not just main: the August 2026 compromise was force-pushed to
+# staging and a feature branch, where no workflow was watching, and sat there
+# for three weeks.
 on:
   push:
-    branches: [ "master", "main" ]
   pull_request:
-    branches: [ "master", "main" ]
 
 jobs:
   build-and-test:
@@ -12,6 +13,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    # Before npm ci — installing runs lifecycle scripts, so anything injected
+    # has to be found while the checkout is still inert.
+    - name: Scan for injected code
+      run: node backend/scripts/scan-injected-code.mjs
 
     - name: Use Node.js
       uses: actions/setup-node@v4

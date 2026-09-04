@@ -17,7 +17,8 @@
     "test": "vitest run",
     "postinstall": "prisma generate",
     "db:purge-test-users": "tsx scripts/purge-test-users.ts",
-    "email:test": "tsx scripts/send-test-email.ts"
+    "email:test": "tsx scripts/send-test-email.ts",
+    "scan:injected": "node scripts/scan-injected-code.mjs .."
   },
   "dependencies": {
     "@gireapp/shared": "file:../shared",
