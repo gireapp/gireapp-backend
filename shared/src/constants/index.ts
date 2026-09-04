@@ -40,7 +40,6 @@ export const API_PATHS = {
     VERIFY_EMAIL: '/api/auth/verify-email',
     RESEND_VERIFICATION: '/api/auth/resend-verification',
     ONBOARDING: '/api/auth/onboarding',
-    GUARDIAN_CONSENT: '/api/auth/guardian-consent',
   },
   COURSES: {
     LIST: '/api/courses',

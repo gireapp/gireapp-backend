@@ -7,7 +7,6 @@ import {
   forgotPassword,
   resetPassword,
   verifyEmail,
-  confirmGuardianConsent,
   resendVerification,
   onboarding,
 } from '../controllers/auth.controller';
@@ -36,9 +35,6 @@ router.post('/reset-password', authLimiter, resetPassword);
 
 // /api/auth/verify-email
 router.post('/verify-email', authLimiter, verifyEmail);
-
-// /api/auth/guardian-consent — one-click confirmation from the guardian's email
-router.post('/guardian-consent', authLimiter, confirmGuardianConsent);
 
 // /api/auth/resend-verification
 router.post('/resend-verification', authLimiter, resendVerification);

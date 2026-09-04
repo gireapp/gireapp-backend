@@ -67,6 +67,3 @@ backend/.env.example
 mvp.txt
 trd.txt
 prd.txt
-
-# Throwaway verification scripts run against live services
-tmp-*
