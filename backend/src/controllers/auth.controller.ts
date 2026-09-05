@@ -911,7 +911,7 @@ export const confirmEmailChange = async (req: Request, res: Response): Promise<v
     res.status(200).json({
       success: true,
       data: {
-        message: 'Email address updated. Please log in with your new address.',
+        message: 'Email address updated successfully.',
         email: user.pendingEmail,
         name: user.name,
       },
