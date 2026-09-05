@@ -127,6 +127,34 @@ export const resetPasswordSchema = z.object({
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+/**
+ * Changing a password from inside the account, where the current password is
+ * the proof of identity — unlike the reset flow, which proves it by email.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Please enter your current password"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(128, "Password must be under 128 characters")
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+        "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+      ),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.currentPassword !== data.password, {
+    message: "Your new password must be different from your current one",
+    path: ["password"],
+  });
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 // ── Onboarding Schemas ──
 
 export const onboardingSchema = z.object({
