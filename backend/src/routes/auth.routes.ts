@@ -10,6 +10,7 @@ import {
   confirmGuardianConsent,
   resendVerification,
   onboarding,
+  changePassword,
 } from '../controllers/auth.controller';
 import { authLimiter } from '../middlewares/rateLimit.middleware';
 import { requireAuth } from '../middlewares/auth.middleware';
@@ -45,5 +46,8 @@ router.post('/resend-verification', authLimiter, resendVerification);
 
 // /api/auth/onboarding
 router.post('/onboarding', requireAuth, onboarding);
+
+// /api/auth/change-password — authenticated; authLimiter also caps password guessing here
+router.post('/change-password', authLimiter, requireAuth, changePassword);
 
 export default router;

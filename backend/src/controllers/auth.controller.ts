@@ -6,6 +6,7 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
   resendVerificationSchema,
   onboardingSchema,
   calculateAge,
@@ -19,6 +20,7 @@ import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import {
   signSessionToken,
   setSessionCookie,
+  clearSessionCookie,
   generateOneTimeToken,
   hashToken,
 } from '../utils/token';
@@ -316,12 +318,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
-  res.cookie('token', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    expires: new Date(0), // Expire immediately
-  });
+  clearSessionCookie(res);
   res.status(200).json({ success: true, data: { message: 'Logged out successfully' } });
 };
 
@@ -661,6 +658,90 @@ export const resendVerification = async (req: Request, res: Response): Promise<v
     res.status(200).json({ success: true, data: neutralResponse });
   } catch (error) {
     logger.error('Resend-verification error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Change the password from inside the account. The reset flow proves identity
+ * by email; here the current password is the proof, so it must be checked
+ * before anything is written — otherwise a stolen session silently becomes a
+ * stolen account.
+ */
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Change-password');
+    if (sanitizedBody === null) return;
+
+    const result = changePasswordSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { currentPassword, password } = result.data;
+
+    const user = await prisma.user.findFirst({
+      where: { id: payload.userId, deletedAt: null },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    const currentIsValid = await compare(currentPassword, user.passwordHash);
+    if (!currentIsValid) {
+      logger.security('Change-password rejected — current password incorrect', {
+        userId: user.id,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { currentPassword: ['That is not your current password'] },
+      });
+      return;
+    }
+
+    const passwordHash = await hash(password, 12);
+
+    // Stamping passwordChangedAt retires every token minted before now — this
+    // one included, so the caller is deliberately logged out and must sign in
+    // again. That is the point: if a thief held a session, it dies here.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordChangedAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+
+    logger.security('Password changed — existing sessions invalidated', {
+      userId: user.id,
+      ip: req.ip,
+    });
+
+    clearSessionCookie(res);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Password changed successfully. Please log in again.',
+      },
+    });
+  } catch (error) {
+    logger.error('Change-password error', {
       errorMessage: (error as Error).message,
       ip: req.ip,
     });

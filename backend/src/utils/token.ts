@@ -35,6 +35,19 @@ export function setSessionCookie(res: Response, token: string): void {
   });
 }
 
+/**
+ * Expire the session cookie. The attributes must match `setSessionCookie` or the
+ * browser treats it as a different cookie and leaves the original in place.
+ */
+export function clearSessionCookie(res: Response): void {
+  res.cookie('token', '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    expires: new Date(0),
+  });
+}
+
 /** Random 32-byte one-time token. Only the hash is stored at rest. */
 export function generateOneTimeToken(): { raw: string; hash: string } {
   const raw = randomBytes(32).toString('hex');
