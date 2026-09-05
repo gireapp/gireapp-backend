@@ -38,6 +38,8 @@ export const API_PATHS = {
     FORGOT_PASSWORD: '/api/auth/forgot-password',
     RESET_PASSWORD: '/api/auth/reset-password',
     CHANGE_PASSWORD: '/api/auth/change-password',
+    UPDATE_EMAIL: '/api/auth/update-email',
+    CONFIRM_EMAIL_CHANGE: '/api/auth/confirm-email-change',
     VERIFY_EMAIL: '/api/auth/verify-email',
     RESEND_VERIFICATION: '/api/auth/resend-verification',
     ONBOARDING: '/api/auth/onboarding',

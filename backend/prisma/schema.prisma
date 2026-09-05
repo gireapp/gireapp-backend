@@ -82,6 +82,13 @@ model User {
   resetToken         String?   @unique
   resetTokenExpiry   DateTime?
 
+  // Email change in flight. `email` is only rewritten once the link sent to
+  // pendingEmail is opened, so an unconfirmed address can never lock anyone out
+  // of their own account.
+  pendingEmail       String?
+  pendingEmailToken  String?   @unique
+  pendingEmailExpiry DateTime?
+
   // Brute-force protection (per-account lockout)
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
