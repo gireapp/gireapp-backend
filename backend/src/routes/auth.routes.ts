@@ -11,6 +11,8 @@ import {
   resendVerification,
   onboarding,
   changePassword,
+  requestEmailChange,
+  confirmEmailChange,
 } from '../controllers/auth.controller';
 import { authLimiter } from '../middlewares/rateLimit.middleware';
 import { requireAuth } from '../middlewares/auth.middleware';
@@ -49,5 +51,15 @@ router.post('/onboarding', requireAuth, onboarding);
 
 // /api/auth/change-password — authenticated; authLimiter also caps password guessing here
 router.post('/change-password', authLimiter, requireAuth, changePassword);
+
+// @route   POST /api/auth/update-email
+// @desc    Request a change of the account's email address
+// @access  Private
+router.post('/update-email', authLimiter, requireAuth, requestEmailChange);
+
+// @route   POST /api/auth/confirm-email-change
+// @desc    Apply a requested email change from the link sent to the new address
+// @access  Public (the token is the proof; the link is often opened elsewhere)
+router.post('/confirm-email-change', authLimiter, confirmEmailChange);
 
 export default router;

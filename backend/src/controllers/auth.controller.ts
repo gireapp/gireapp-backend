@@ -7,6 +7,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  updateEmailSchema,
   resendVerificationSchema,
   onboardingSchema,
   calculateAge,
@@ -30,6 +31,8 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendGuardianConsentEmail,
+  sendEmailChangeVerification,
+  sendEmailChangeNotice,
 } from '../services/email';
 import { logger } from '../utils/logger';
 
@@ -742,6 +745,179 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
     });
   } catch (error) {
     logger.error('Change-password error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Start an email change. Nothing is rewritten here — the new address is parked
+ * on the row until the link sent to it is opened, so a typo or a hijacked
+ * session cannot strand the real owner outside their own account.
+ */
+export const requestEmailChange = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-email');
+    if (sanitizedBody === null) return;
+
+    const result = updateEmailSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { newEmail } = result.data;
+
+    const user = await prisma.user.findFirst({
+      where: { id: payload.userId, deletedAt: null },
+      select: { id: true, name: true, email: true },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    if (user.email === newEmail) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { newEmail: ['That is already your email address'] },
+      });
+      return;
+    }
+
+    const taken = await prisma.user.findFirst({
+      where: { email: newEmail, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (taken) {
+      res.status(409).json({
+        error: 'Validation failed.',
+        errors: { newEmail: ['That email address is already in use'] },
+      });
+      return;
+    }
+
+    const pending = generateOneTimeToken();
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        pendingEmail: newEmail,
+        pendingEmailToken: pending.hash,
+        pendingEmailExpiry: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+      },
+    });
+
+    logger.security('Email change requested', {
+      userId: user.id,
+      ip: req.ip,
+    });
+
+    // Delivery is not awaited: a slow mail provider should not hold the request
+    // open, and the pending change is already durable.
+    sendEmailChangeVerification(newEmail, user.name, pending.raw).catch((err) => {
+      logger.error('Email-change verification send failed', {
+        userId: user.id,
+        errorMessage: (err as Error).message,
+      });
+    });
+
+    // The old address is the only channel the requester does not control.
+    sendEmailChangeNotice(user.email, user.name, newEmail).catch((err) => {
+      logger.error('Email-change notice send failed', {
+        userId: user.id,
+        errorMessage: (err as Error).message,
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Verification email sent successfully. Please check your inbox.',
+        pendingEmail: newEmail,
+      },
+    });
+  } catch (error) {
+    logger.error('Update-email error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Finish an email change from the link. Public by design — the link is often
+ * opened on the phone rather than the device that started it, and holding the
+ * token is the proof that matters.
+ */
+export const confirmEmailChange = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sanitizedBody = screenBody(req, res, 'Confirm-email-change');
+    if (sanitizedBody === null) return;
+
+    const token = (sanitizedBody as { token?: unknown })?.token;
+    if (typeof token !== 'string' || token.length === 0) {
+      res.status(400).json({ error: 'Confirmation token is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        pendingEmailToken: hashToken(token),
+        pendingEmailExpiry: { gt: new Date() },
+        deletedAt: null,
+      },
+      select: { id: true, name: true, pendingEmail: true },
+    });
+
+    if (!user?.pendingEmail) {
+      res.status(400).json({ error: 'This confirmation link is invalid or has expired.' });
+      return;
+    }
+
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: user.pendingEmail,
+          // Opening the link is itself proof the address works.
+          emailVerified: new Date(),
+          pendingEmail: null,
+          pendingEmailToken: null,
+          pendingEmailExpiry: null,
+        },
+      });
+    } catch (error) {
+      // Someone else claimed the address between the request and the click.
+      if ((error as { code?: string }).code === 'P2002') {
+        res.status(409).json({ error: 'That email address is already in use.' });
+        return;
+      }
+      throw error;
+    }
+
+    logger.security('Email change confirmed', { userId: user.id, ip: req.ip });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Email address updated. Please log in with your new address.',
+        email: user.pendingEmail,
+        name: user.name,
+      },
+    });
+  } catch (error) {
+    logger.error('Confirm-email-change error', {
       errorMessage: (error as Error).message,
       ip: req.ip,
     });
