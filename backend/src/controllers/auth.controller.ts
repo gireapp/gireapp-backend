@@ -773,15 +773,30 @@ export const requestEmailChange = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const { newEmail } = result.data;
+    const { newEmail, currentPassword } = result.data;
 
     const user = await prisma.user.findFirst({
       where: { id: payload.userId, deletedAt: null },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, passwordHash: true },
     });
 
     if (!user) {
       res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    // Checked before anything else is looked up: a caller who cannot prove the
+    // password learns nothing about which addresses are already registered.
+    const currentIsValid = await compare(currentPassword, user.passwordHash);
+    if (!currentIsValid) {
+      logger.security('Email change rejected — current password incorrect', {
+        userId: user.id,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { currentPassword: ['That is not your current password'] },
+      });
       return;
     }
 

@@ -117,8 +117,21 @@ describe('changePassword', () => {
 });
 
 describe('requestEmailChange', () => {
-  const VALID = { newEmail: 'new@example.com', confirmEmail: 'new@example.com' };
-  const CURRENT = { id: USER_ID, name: 'Afolabi', email: 'old@example.com' };
+  const VALID = {
+    newEmail: 'new@example.com',
+    confirmEmail: 'new@example.com',
+    currentPassword: 'OldPassw0rd',
+  };
+  let CURRENT: Record<string, unknown>;
+
+  beforeEach(async () => {
+    CURRENT = {
+      id: USER_ID,
+      name: 'Afolabi',
+      email: 'old@example.com',
+      passwordHash: await hash(VALID.currentPassword, 4),
+    };
+  });
 
   it('parks the new address instead of rewriting the account', async () => {
     prismaMock.user.findFirst.mockResolvedValueOnce(CURRENT).mockResolvedValueOnce(null);
@@ -177,7 +190,7 @@ describe('requestEmailChange', () => {
     const res = buildRes();
 
     await requestEmailChange(
-      buildReq({ newEmail: 'old@example.com', confirmEmail: 'old@example.com' }),
+      buildReq({ ...VALID, newEmail: 'old@example.com', confirmEmail: 'old@example.com' }),
       res
     );
 
@@ -189,13 +202,38 @@ describe('requestEmailChange', () => {
     const res = buildRes();
 
     await requestEmailChange(
-      buildReq({ newEmail: 'new@example.com', confirmEmail: 'typo@example.com' }),
+      buildReq({ ...VALID, confirmEmail: 'typo@example.com' }),
       res
     );
 
     expect(res.statusCode).toBe(422);
     expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
     expect(emailMock.sendEmailChangeVerification).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong password before looking any address up', async () => {
+    prismaMock.user.findFirst.mockResolvedValueOnce(CURRENT);
+    const res = buildRes();
+
+    await requestEmailChange(buildReq({ ...VALID, currentPassword: 'WrongPass1' }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect((res.body as { errors: Record<string, string[]> }).errors.currentPassword).toEqual([
+      'That is not your current password',
+    ]);
+    // Only the caller's own row was read — nothing was learned about the new address.
+    expect(prismaMock.user.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(emailMock.sendEmailChangeVerification).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing password before touching the database', async () => {
+    const res = buildRes();
+
+    await requestEmailChange(buildReq({ ...VALID, currentPassword: '' }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
   });
 
   it('still answers 200 when the mail provider fails, the change being durable', async () => {

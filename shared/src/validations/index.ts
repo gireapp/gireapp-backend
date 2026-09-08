@@ -35,9 +35,10 @@ export const registerSchema = z.object({
     .trim(),
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
     .max(255, 'Email must be under 255 characters')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')
@@ -84,8 +85,9 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export const loginSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -94,8 +96,9 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export const forgotPasswordSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
 });
 
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
@@ -103,8 +106,9 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export const resendVerificationSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
 });
 
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
@@ -133,24 +137,24 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
  */
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Please enter your current password"),
+    currentPassword: z.string().min(1, 'Please enter your current password'),
     password: z
       .string()
-      .min(8, "Password must be at least 8 characters")
-      .max(128, "Password must be under 128 characters")
+      .min(8, 'Password must be at least 8 characters')
+      .max(128, 'Password must be under 128 characters')
       .regex(
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-        "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+        'Password must contain at least one uppercase letter, one lowercase letter, and one number',
       ),
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
   })
   .refine((data) => data.currentPassword !== data.password, {
-    message: "Your new password must be different from your current one",
-    path: ["password"],
+    message: 'Your new password must be different from your current one',
+    path: ['password'],
   });
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
@@ -158,23 +162,32 @@ export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 /**
  * Changing the account's email from inside the account. The address is typed
  * twice because a typo here is unrecoverable — the confirmation link goes to
- * the new address, and nobody would ever receive it.
+ * the new address, and nobody would ever receive it. The current password is
+ * required because a live session alone is not proof of ownership: whoever holds
+ * one could otherwise move the account to an inbox the real owner cannot reach.
  */
 export const updateEmailSchema = z
   .object({
+    // Trimmed before the address is judged: a trailing space survives a
+    // copy-paste far more often than a typo does.
     newEmail: z
       .string()
-      .email("Please enter a valid email address")
-      .max(255, "Email must be under 255 characters")
-      .transform((e) => e.toLowerCase().trim()),
+      .trim()
+      .email('Please enter a valid email address')
+      .max(255, 'Email must be under 255 characters')
+      .transform((e) => e.toLowerCase()),
     confirmEmail: z
       .string()
-      .min(1, "Please confirm your new email address")
-      .transform((e) => e.toLowerCase().trim()),
+      .trim()
+      .min(1, 'Please confirm your new email address')
+      .transform((e) => e.toLowerCase()),
+    currentPassword: z
+      .string()
+      .min(1, 'Please enter your current password'),
   })
   .refine((data) => data.newEmail === data.confirmEmail, {
-    message: "Email addresses do not match",
-    path: ["confirmEmail"],
+    message: 'Email addresses do not match',
+    path: ['confirmEmail'],
   });
 
 export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
