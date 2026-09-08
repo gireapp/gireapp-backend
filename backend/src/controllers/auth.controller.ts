@@ -8,6 +8,7 @@ import {
   resetPasswordSchema,
   changePasswordSchema,
   updateEmailSchema,
+  updateAvatarSchema,
   resendVerificationSchema,
   onboardingSchema,
   calculateAge,
@@ -27,6 +28,15 @@ import {
 } from '../utils/token';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { sessionUserSelect, toSessionUser } from '../utils/session-user';
+import {
+  AVATAR_MAX_BYTES,
+  allowedAvatarExtensions,
+  createAvatarUploadUrl,
+  isAllowedAvatar,
+  isMintedAvatarKey,
+  isStorageConfigured,
+  resolveAvatarUrl,
+} from '../services/storage';
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
@@ -140,7 +150,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       select: sessionUserSelect,
     });
 
-    const sessionUser = toSessionUser(user);
+    const sessionUser = await toSessionUser(user);
 
     // Guardian consent is independent of email verification, so it is requested
     // here rather than inside either branch below. Fire-and-forget: a mail failure
@@ -297,7 +307,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       lockedUntil: _lu,
       ...profile
     } = user;
-    const sessionUser = toSessionUser(profile);
+    const sessionUser = await toSessionUser(profile);
     const token = signSessionToken({
       userId: user.id,
       role: user.role,
@@ -339,7 +349,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.status(200).json({ success: true, data: toSessionUser(user) });
+    res.status(200).json({ success: true, data: await toSessionUser(user) });
   } catch (error) {
     logger.error('Me error', {
       errorMessage: (error as Error).message,
@@ -940,6 +950,119 @@ export const confirmEmailChange = async (req: Request, res: Response): Promise<v
   }
 };
 
+/**
+ * Hand the browser a short-lived URL to PUT a profile photo straight to storage.
+ * The bytes never touch this server: it only decides what may be uploaded and
+ * under what key.
+ */
+export const getAvatarUploadUrl = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const filename = typeof req.query.filename === 'string' ? req.query.filename : '';
+    const fileSize = Number(req.query.fileSize);
+
+    if (!filename) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { filename: ['filename query parameter is required'] },
+      });
+      return;
+    }
+
+    if (!isAllowedAvatar(filename)) {
+      res.status(415).json({
+        error: `Unsupported file type. Allowed: ${allowedAvatarExtensions().join(', ')}`,
+      });
+      return;
+    }
+
+    // The browser checks this too, but the browser is not the one being trusted.
+    if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > AVATAR_MAX_BYTES) {
+      res.status(413).json({
+        error: `File too large. Maximum size is ${AVATAR_MAX_BYTES / (1024 * 1024)}MB.`,
+      });
+      return;
+    }
+
+    // Missing config is an environment problem, not a server fault — 503 says
+    // "not wired up here" rather than burying it in a generic 500.
+    if (!isStorageConfigured()) {
+      logger.error('Avatar upload URL requested but object storage is not configured');
+      res.status(503).json({ error: 'Photo uploads are not configured on this environment.' });
+      return;
+    }
+
+    const data = await createAvatarUploadUrl(filename);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    logger.error('Avatar upload URL error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Point the account at an uploaded photo. The key arrives from the browser, so
+ * it is only written once proved to be one this server minted.
+ */
+export const updateAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-avatar');
+    if (sanitizedBody === null) return;
+
+    const result = updateAvatarSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { key } = result.data;
+
+    if (!isMintedAvatarKey(key)) {
+      logger.security('Update-avatar rejected — key was not minted by this server', {
+        userId: payload.userId,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { key: ['That upload could not be verified. Please try again.'] },
+      });
+      return;
+    }
+
+    const user = await prisma.user.updateMany({
+      where: { id: payload.userId, deletedAt: null },
+      data: { image: key },
+    });
+
+    if (user.count === 0) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Profile photo updated successfully!',
+        // Signed here so the screen can show the new photo without a round trip.
+        image: await resolveAvatarUrl(key),
+      },
+    });
+  } catch (error) {
+    logger.error('Update-avatar error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
 export const onboarding = async (req: Request, res: Response): Promise<void> => {
   try {
     const payload = (req as AuthenticatedRequest).user;
@@ -965,7 +1088,7 @@ export const onboarding = async (req: Request, res: Response): Promise<void> => 
     });
 
     // Re-sign the JWT with the updated claims so the frontend refreshes its session
-    const sessionUser = toSessionUser(user);
+    const sessionUser = await toSessionUser(user);
     const token = signSessionToken({
       userId: user.id,
       role: user.role,

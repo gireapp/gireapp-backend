@@ -13,6 +13,8 @@ import {
   changePassword,
   requestEmailChange,
   confirmEmailChange,
+  getAvatarUploadUrl,
+  updateAvatar,
 } from '../controllers/auth.controller';
 import { authLimiter } from '../middlewares/rateLimit.middleware';
 import { requireAuth } from '../middlewares/auth.middleware';
@@ -61,5 +63,15 @@ router.post('/update-email', authLimiter, requireAuth, requestEmailChange);
 // @desc    Apply a requested email change from the link sent to the new address
 // @access  Public (the token is the proof; the link is often opened elsewhere)
 router.post('/confirm-email-change', authLimiter, confirmEmailChange);
+
+// @route   GET /api/auth/avatar-upload-url
+// @desc    Short-lived URL for uploading a profile photo straight to storage
+// @access  Private
+router.get('/avatar-upload-url', requireAuth, getAvatarUploadUrl);
+
+// @route   POST /api/auth/avatar
+// @desc    Point the account at an uploaded profile photo
+// @access  Private
+router.post('/avatar', requireAuth, updateAvatar);
 
 export default router;

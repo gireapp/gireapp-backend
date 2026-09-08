@@ -192,6 +192,17 @@ export const updateEmailSchema = z
 
 export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
 
+/**
+ * Saving a profile photo. The browser uploads straight to storage and reports
+ * the key back, so `key` arrives as untrusted input — the server checks it is
+ * one it minted before writing it to the row.
+ */
+export const updateAvatarSchema = z.object({
+  key: z.string().min(1, 'Please choose a photo to upload'),
+});
+
+export type UpdateAvatarInput = z.infer<typeof updateAvatarSchema>;
+
 // ── Onboarding Schemas ──
 
 export const onboardingSchema = z.object({

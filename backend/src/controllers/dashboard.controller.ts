@@ -180,7 +180,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const profile: SessionUser = toSessionUser(user);
+    const profile: SessionUser = await toSessionUser(user);
 
     const activeCourses: CourseCard[] = enrolments.map((enrolment) => {
       const lessons = enrolment.course.modules.flatMap((m) => m.lessons);

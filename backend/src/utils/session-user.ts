@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────
 
 import { calculateAge } from '@gireapp/shared';
+import { resolveAvatarUrl } from '../services/storage';
 import type { AcademicLevel, GuardianConsentStatus, SessionUser } from '@gireapp/shared';
 
 /** Prisma `select` covering exactly the columns toSessionUser() needs. */
@@ -36,12 +37,19 @@ export type SessionUserRow = {
   guardianConsentStatus: GuardianConsentStatus;
 };
 
-export function toSessionUser(user: SessionUserRow): SessionUser {
+/**
+ * Async because `image` is a private object key once a learner uploads one, and
+ * the browser needs a signed URL. Signing here rather than at each call site is
+ * the point of this projection: a controller cannot forget it and ship a broken
+ * avatar.
+ */
+export async function toSessionUser(user: SessionUserRow): Promise<SessionUser> {
   // dateOfBirth is deliberately dropped — it is PII the client never needs, and
   // isMinor is derived from it here so it cannot go stale as a learner turns 18.
   const { dateOfBirth, ...rest } = user;
   return {
     ...rest,
+    image: await resolveAvatarUrl(user.image),
     isOnboardingComplete: Boolean(user.academicLevel && user.department),
     isMinor: dateOfBirth ? calculateAge(dateOfBirth) < 18 : false,
   };

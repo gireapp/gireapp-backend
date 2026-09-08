@@ -23,6 +23,20 @@ const ALLOWED_UPLOAD_TYPES: Record<string, string> = {
   '.mov': 'video/quicktime',
 };
 
+/**
+ * Profile photos. A separate list from lesson media on purpose: these are
+ * uploaded by any signed-in learner, not a vetted tutor, so the surface stays
+ * as narrow as the design's own guidance — JPG and PNG only.
+ */
+const ALLOWED_AVATAR_TYPES: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+};
+
+/** The 5MB the Change Photo screen promises. */
+export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
 export function extensionOf(filename: string): string {
   const dot = filename.lastIndexOf('.');
   return dot === -1 ? '' : filename.slice(dot).toLowerCase();
@@ -67,6 +81,41 @@ const MINTED_OBJECT_KEY = new RegExp(
 
 export function isMintedObjectKey(key: string): boolean {
   return MINTED_OBJECT_KEY.test(key);
+}
+
+export function isAllowedAvatar(filename: string): boolean {
+  return extensionOf(filename) in ALLOWED_AVATAR_TYPES;
+}
+
+export function avatarContentTypeFor(filename: string): string | undefined {
+  return ALLOWED_AVATAR_TYPES[extensionOf(filename)];
+}
+
+export function allowedAvatarExtensions(): string[] {
+  return Object.keys(ALLOWED_AVATAR_TYPES);
+}
+
+/** Namespaced away from lesson media so the two can never be confused. */
+export function buildAvatarKey(filename: string): string {
+  return `avatars/${randomUUID()}${extensionOf(filename)}`;
+}
+
+/**
+ * The exact shape `buildAvatarKey` mints. The browser uploads straight to
+ * storage and reports the key back, so the key reaches the server as untrusted
+ * input: an unanchored prefix test would accept `avatars/../lessons/paid.pdf`
+ * and store it as somebody's profile photo, to be signed and served later.
+ */
+const MINTED_AVATAR_KEY = new RegExp(
+  `^avatars/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:${Object.keys(
+    ALLOWED_AVATAR_TYPES,
+  )
+    .map((extension) => extension.replace('.', '\\.'))
+    .join('|')})$`,
+);
+
+export function isMintedAvatarKey(key: string): boolean {
+  return MINTED_AVATAR_KEY.test(key);
 }
 
 /**
@@ -138,4 +187,34 @@ export async function createDownloadUrl(key: string): Promise<string> {
     new GetObjectCommand({ Bucket: process.env.S3_BUCKET as string, Key: key }),
     { expiresIn: DOWNLOAD_URL_TTL_SECONDS }
   );
+}
+
+export async function createAvatarUploadUrl(
+  filename: string
+): Promise<{ uploadUrl: string; key: string; expiresInSeconds: number }> {
+  const key = buildAvatarKey(filename);
+
+  const uploadUrl = await getSignedUrl(
+    storageClient(),
+    new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET as string,
+      Key: key,
+      ContentType: avatarContentTypeFor(filename),
+    }),
+    { expiresIn: UPLOAD_URL_TTL_SECONDS }
+  );
+
+  return { uploadUrl, key, expiresInSeconds: UPLOAD_URL_TTL_SECONDS };
+}
+
+/**
+ * Turn a stored `image` into something a browser can load. Rows hold a bare
+ * object key once uploaded here, but seeded fixtures and OAuth avatars hold a
+ * ready-made URL, which is passed through untouched.
+ */
+export async function resolveAvatarUrl(image: string | null): Promise<string | null> {
+  if (!image || !isObjectKey(image)) return image;
+  // An unconfigured environment should show initials, not throw mid-render.
+  if (!isStorageConfigured()) return null;
+  return createDownloadUrl(image);
 }

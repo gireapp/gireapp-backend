@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response } from 'express';
 
 const { prismaMock, emailMock, loggerMock } = vi.hoisted(() => ({
-  prismaMock: { user: { findFirst: vi.fn(), update: vi.fn() } },
+  prismaMock: { user: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() } },
   emailMock: {
     sendVerificationEmail: vi.fn().mockResolvedValue(undefined),
     sendPasswordResetEmail: vi.fn().mockResolvedValue(undefined),
@@ -19,7 +19,13 @@ vi.mock('../../utils/logger', () => ({ logger: loggerMock }));
 
 import { hash } from 'bcryptjs';
 import { hashToken } from '../../utils/token';
-import { changePassword, requestEmailChange, confirmEmailChange } from '../auth.controller';
+import { buildAvatarKey, buildObjectKey } from '../../services/storage';
+import {
+  changePassword,
+  requestEmailChange,
+  confirmEmailChange,
+  updateAvatar,
+} from '../auth.controller';
 
 const USER_ID = 'user-1';
 
@@ -53,6 +59,7 @@ function buildReq(body: unknown, authenticated = true) {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.user.update.mockResolvedValue({});
+  prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
 });
 
 describe('changePassword', () => {
@@ -311,5 +318,76 @@ describe('confirmEmailChange', () => {
     await confirmEmailChange(buildReq({ token: 'raw-token' }, false), res);
 
     expect(res.statusCode).toBe(409);
+  });
+});
+
+describe('updateAvatar', () => {
+  it('stores a key it minted itself', async () => {
+    const key = buildAvatarKey('selfie.png');
+    const res = buildRes();
+
+    await updateAvatar(buildReq({ key }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { image: key } })
+    );
+  });
+
+  it.each([
+    ['a traversal behind the prefix', 'avatars/../lessons/paid-course.pdf'],
+    ['a key with no uuid', 'avatars/selfie.png'],
+    ['a disallowed extension', 'avatars/11111111-1111-1111-1111-111111111111.svg'],
+    ['an absolute URL', 'https://evil.example.com/tracker.png'],
+  ])('refuses %s', async (_label, key) => {
+    const res = buildRes();
+
+    await updateAvatar(buildReq({ key }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a lesson key offered as a profile photo', async () => {
+    const res = buildRes();
+
+    await updateAvatar(buildReq({ key: buildObjectKey('notes.pdf') }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('logs a rejected key as a security event, not a validation nit', async () => {
+    await updateAvatar(buildReq({ key: 'avatars/../etc/passwd' }), buildRes());
+
+    expect(loggerMock.security).toHaveBeenCalledWith(
+      expect.stringContaining('not minted'),
+      expect.objectContaining({ userId: USER_ID })
+    );
+  });
+
+  it('requires a key', async () => {
+    const res = buildRes();
+
+    await updateAvatar(buildReq({}), res);
+
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('only ever writes to the caller’s own, undeleted row', async () => {
+    await updateAvatar(buildReq({ key: buildAvatarKey('me.jpg') }), buildRes());
+
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: USER_ID, deletedAt: null } })
+    );
+  });
+
+  it('reports a soft-deleted account as unauthorized', async () => {
+    prismaMock.user.updateMany.mockResolvedValue({ count: 0 });
+    const res = buildRes();
+
+    await updateAvatar(buildReq({ key: buildAvatarKey('me.jpg') }), res);
+
+    expect(res.statusCode).toBe(401);
   });
 });
