@@ -4,7 +4,8 @@
 // ─────────────────────────────────────────────────
 
 import { z } from 'zod';
-import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
+import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS, STUDENT_STATUSES } from '../types/index.js';
+import { PAGINATION } from '../constants/index.js';
 
 // ── Auth Schemas ──
 
@@ -363,3 +364,16 @@ export const uploadRequestSchema = z.object({
 });
 
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;
+
+// ── Admin: Student Listing ──
+
+export const studentListQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  courseId: z.string().cuid('Invalid course ID').optional(),
+  academicLevel: z.enum(ACADEMIC_LEVELS).optional(),
+  status: z.enum(STUDENT_STATUSES).optional(),
+  page: z.coerce.number().int().min(1).default(PAGINATION.DEFAULT_PAGE),
+  limit: z.coerce.number().int().min(1).max(PAGINATION.MAX_LIMIT).default(PAGINATION.DEFAULT_LIMIT),
+});
+
+export type StudentListQuery = z.infer<typeof studentListQuerySchema>;

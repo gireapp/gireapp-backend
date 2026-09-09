@@ -3,6 +3,8 @@ import {
   createCourse,
   getUploadUrl,
   attachLessonMedia,
+  listStudents,
+  listCourseOptions,
 } from '../controllers/admin.controller';
 import { requireAuth, requireStaff } from '../middlewares/auth.middleware';
 
@@ -13,6 +15,10 @@ router.use(requireAuth, requireStaff);
 
 // /api/admin/courses
 router.post('/courses', createCourse);
+router.get('/courses', listCourseOptions);
+
+// /api/admin/students?search=&courseId=&academicLevel=&status=&page=&limit=
+router.get('/students', listStudents);
 
 // /api/admin/upload-url?filename=notes.pdf
 router.get('/upload-url', getUploadUrl);

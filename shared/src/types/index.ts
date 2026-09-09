@@ -236,3 +236,30 @@ export interface QuizResult {
   badgeEarned: BadgeType | null;
   timeTakenSec: number;
 }
+
+// ── Admin: Student Listing ──
+
+/**
+ * Lifecycle of a student account as the admin listing presents it. Derived on
+ * read from `deletedAt` / `emailVerified` rather than stored, so it can never
+ * disagree with the columns it is derived from.
+ */
+export const STUDENT_STATUSES = ['ACTIVE', 'PENDING', 'INACTIVE'] as const;
+export type StudentStatus = (typeof STUDENT_STATUSES)[number];
+
+export interface StudentListItem {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  academicLevel: AcademicLevel | null;
+  status: StudentStatus;
+  /**
+   * The listing shows one course per student — the most recently active
+   * enrolment. Null when the student has not enrolled in anything yet, which
+   * the UI omits rather than filling with a placeholder.
+   */
+  course: { id: string; title: string } | null;
+  /** Percent complete (0-100) of `course`; null whenever `course` is null. */
+  progress: number | null;
+}
