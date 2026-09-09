@@ -462,6 +462,11 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
         passwordChangedAt: new Date(),
         failedLoginAttempts: 0,
         lockedUntil: null,
+        // Reset is where the email-change notice sends a learner who did not
+        // make the request, so it above all must cancel that request.
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailExpiry: null,
       },
     });
 
@@ -738,6 +743,14 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
         passwordChangedAt: new Date(),
         failedLoginAttempts: 0,
         lockedUntil: null,
+        // A pending email change outlives the credential it was made with
+        // unless it is torn down here. `confirmEmailChange` needs no session
+        // and no password, so a request made by a thief would still land after
+        // the owner had rotated the password to lock them out — and the notice
+        // email tells them to do exactly that.
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailExpiry: null,
       },
     });
 

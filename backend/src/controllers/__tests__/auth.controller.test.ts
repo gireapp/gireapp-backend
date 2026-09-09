@@ -26,6 +26,7 @@ import {
   confirmEmailChange,
   updateAvatar,
   updateName,
+  resetPassword,
 } from '../auth.controller';
 
 const USER_ID = 'user-1';
@@ -109,6 +110,23 @@ describe('changePassword', () => {
     const data = prismaMock.user.update.mock.calls[0][0].data;
     expect(data.failedLoginAttempts).toBe(0);
     expect(data.lockedUntil).toBeNull();
+  });
+
+  it('cancels any email change the old password had set in motion', async () => {
+    // confirmEmailChange needs no session and no password, so a request made by
+    // a thief would otherwise still land after the owner rotated the password —
+    // which is precisely what the notice email tells them to do.
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: USER_ID,
+      passwordHash: await hash(VALID.currentPassword, 4),
+    });
+
+    await changePassword(buildReq(VALID), buildRes());
+
+    const data = prismaMock.user.update.mock.calls[0][0].data;
+    expect(data.pendingEmail).toBeNull();
+    expect(data.pendingEmailToken).toBeNull();
+    expect(data.pendingEmailExpiry).toBeNull();
   });
 
   it('expires the session cookie of the caller it just logged out', async () => {
@@ -438,5 +456,46 @@ describe('updateName', () => {
     await updateName(buildReq({ name: 'Afolabi Hassan' }), res);
 
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('resetPassword', () => {
+  const VALID = {
+    token: 'raw-reset-token',
+    password: 'NewPassw0rd',
+    confirmPassword: 'NewPassw0rd',
+  };
+
+  it('cancels any email change in flight', async () => {
+    // The email-change notice sends whoever did not make the request straight
+    // to this flow, so above all it must cancel that request.
+    prismaMock.user.findFirst.mockResolvedValue({ id: USER_ID });
+
+    await resetPassword(buildReq(VALID, false), buildRes());
+
+    const data = prismaMock.user.update.mock.calls[0][0].data;
+    expect(data.pendingEmail).toBeNull();
+    expect(data.pendingEmailToken).toBeNull();
+    expect(data.pendingEmailExpiry).toBeNull();
+  });
+
+  it('retires every session and consumes the reset token', async () => {
+    prismaMock.user.findFirst.mockResolvedValue({ id: USER_ID });
+
+    await resetPassword(buildReq(VALID, false), buildRes());
+
+    const data = prismaMock.user.update.mock.calls[0][0].data;
+    expect(data.passwordChangedAt).toBeInstanceOf(Date);
+    expect(data.resetToken).toBeNull();
+  });
+
+  it('writes nothing for an expired or unknown token', async () => {
+    prismaMock.user.findFirst.mockResolvedValue(null);
+    const res = buildRes();
+
+    await resetPassword(buildReq(VALID, false), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 });
