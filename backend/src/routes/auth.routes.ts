@@ -15,6 +15,7 @@ import {
   confirmEmailChange,
   getAvatarUploadUrl,
   updateAvatar,
+  updateName,
 } from '../controllers/auth.controller';
 import { authLimiter } from '../middlewares/rateLimit.middleware';
 import { requireAuth } from '../middlewares/auth.middleware';
@@ -73,5 +74,10 @@ router.get('/avatar-upload-url', requireAuth, getAvatarUploadUrl);
 // @desc    Point the account at an uploaded profile photo
 // @access  Private
 router.post('/avatar', requireAuth, updateAvatar);
+
+// @route   POST /api/auth/name
+// @desc    Change the account's display name
+// @access  Private
+router.post('/name', requireAuth, updateName);
 
 export default router;

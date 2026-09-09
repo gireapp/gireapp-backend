@@ -25,6 +25,7 @@ import {
   requestEmailChange,
   confirmEmailChange,
   updateAvatar,
+  updateName,
 } from '../auth.controller';
 
 const USER_ID = 'user-1';
@@ -387,6 +388,54 @@ describe('updateAvatar', () => {
     const res = buildRes();
 
     await updateAvatar(buildReq({ key: buildAvatarKey('me.jpg') }), res);
+
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('updateName', () => {
+  it('stores a trimmed name', async () => {
+    const res = buildRes();
+
+    await updateName(buildReq({ name: '  Afolabi Hassan  ' }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: 'Afolabi Hassan' } })
+    );
+  });
+
+  it('refuses a name that is only padding', async () => {
+    const res = buildRes();
+
+    await updateName(buildReq({ name: '   A   ' }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a name past the column limit', async () => {
+    const res = buildRes();
+
+    await updateName(buildReq({ name: 'a'.repeat(101) }), res);
+
+    expect(res.statusCode).toBe(422);
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('only ever writes to the caller’s own, undeleted row', async () => {
+    await updateName(buildReq({ name: 'Afolabi Hassan' }), buildRes());
+
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: USER_ID, deletedAt: null } })
+    );
+  });
+
+  it('reports a soft-deleted account as unauthorized', async () => {
+    prismaMock.user.updateMany.mockResolvedValue({ count: 0 });
+    const res = buildRes();
+
+    await updateName(buildReq({ name: 'Afolabi Hassan' }), res);
 
     expect(res.statusCode).toBe(401);
   });

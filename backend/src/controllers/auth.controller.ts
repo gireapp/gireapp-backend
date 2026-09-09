@@ -9,6 +9,7 @@ import {
   changePasswordSchema,
   updateEmailSchema,
   updateAvatarSchema,
+  updateNameSchema,
   resendVerificationSchema,
   onboardingSchema,
   calculateAge,
@@ -1056,6 +1057,52 @@ export const updateAvatar = async (req: Request, res: Response): Promise<void> =
     });
   } catch (error) {
     logger.error('Update-avatar error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Change the display name. The session JWT does not carry the name, so unlike
+ * an email change there is no token to re-sign — the next read simply sees the
+ * new value.
+ */
+export const updateName = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-name');
+    if (sanitizedBody === null) return;
+
+    const result = updateNameSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { name } = result.data;
+
+    const updated = await prisma.user.updateMany({
+      where: { id: payload.userId, deletedAt: null },
+      data: { name },
+    });
+
+    if (updated.count === 0) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Name updated successfully!', name },
+    });
+  } catch (error) {
+    logger.error('Update-name error', {
       errorMessage: (error as Error).message,
       ip: req.ip,
     });

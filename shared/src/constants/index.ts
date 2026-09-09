@@ -42,6 +42,7 @@ export const API_PATHS = {
     CONFIRM_EMAIL_CHANGE: '/api/auth/confirm-email-change',
     AVATAR_UPLOAD_URL: '/api/auth/avatar-upload-url',
     AVATAR: '/api/auth/avatar',
+    NAME: '/api/auth/name',
     VERIFY_EMAIL: '/api/auth/verify-email',
     RESEND_VERIFICATION: '/api/auth/resend-verification',
     ONBOARDING: '/api/auth/onboarding',

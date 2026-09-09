@@ -203,6 +203,20 @@ export const updateAvatarSchema = z.object({
 
 export type UpdateAvatarInput = z.infer<typeof updateAvatarSchema>;
 
+/**
+ * Changing the display name. Trimmed before it is measured, so surrounding
+ * spaces cannot pad a one-character name past the minimum.
+ */
+export const updateNameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Name must be at least 2 characters')
+    .max(100, 'Name must be under 100 characters'),
+});
+
+export type UpdateNameInput = z.infer<typeof updateNameSchema>;
+
 // ── Onboarding Schemas ──
 
 export const onboardingSchema = z.object({
