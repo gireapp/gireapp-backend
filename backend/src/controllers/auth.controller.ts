@@ -6,6 +6,10 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
+  updateEmailSchema,
+  updateAvatarSchema,
+  updateNameSchema,
   resendVerificationSchema,
   onboardingSchema,
   calculateAge,
@@ -19,15 +23,27 @@ import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import {
   signSessionToken,
   setSessionCookie,
+  clearSessionCookie,
   generateOneTimeToken,
   hashToken,
 } from '../utils/token';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { sessionUserSelect, toSessionUser } from '../utils/session-user';
 import {
+  AVATAR_MAX_BYTES,
+  allowedAvatarExtensions,
+  createAvatarUploadUrl,
+  isAllowedAvatar,
+  isMintedAvatarKey,
+  isStorageConfigured,
+  resolveAvatarUrl,
+} from '../services/storage';
+import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendGuardianConsentEmail,
+  sendEmailChangeVerification,
+  sendEmailChangeNotice,
 } from '../services/email';
 import { logger } from '../utils/logger';
 
@@ -135,7 +151,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       select: sessionUserSelect,
     });
 
-    const sessionUser = toSessionUser(user);
+    const sessionUser = await toSessionUser(user);
 
     // Guardian consent is independent of email verification, so it is requested
     // here rather than inside either branch below. Fire-and-forget: a mail failure
@@ -292,7 +308,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       lockedUntil: _lu,
       ...profile
     } = user;
-    const sessionUser = toSessionUser(profile);
+    const sessionUser = await toSessionUser(profile);
     const token = signSessionToken({
       userId: user.id,
       role: user.role,
@@ -316,12 +332,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
-  res.cookie('token', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    expires: new Date(0), // Expire immediately
-  });
+  clearSessionCookie(res);
   res.status(200).json({ success: true, data: { message: 'Logged out successfully' } });
 };
 
@@ -339,7 +350,7 @@ export const me = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    res.status(200).json({ success: true, data: toSessionUser(user) });
+    res.status(200).json({ success: true, data: await toSessionUser(user) });
   } catch (error) {
     logger.error('Me error', {
       errorMessage: (error as Error).message,
@@ -451,6 +462,11 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
         passwordChangedAt: new Date(),
         failedLoginAttempts: 0,
         lockedUntil: null,
+        // Reset is where the email-change notice sends a learner who did not
+        // make the request, so it above all must cancel that request.
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailExpiry: null,
       },
     });
 
@@ -668,6 +684,445 @@ export const resendVerification = async (req: Request, res: Response): Promise<v
   }
 };
 
+/**
+ * Change the password from inside the account. The reset flow proves identity
+ * by email; here the current password is the proof, so it must be checked
+ * before anything is written — otherwise a stolen session silently becomes a
+ * stolen account.
+ */
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Change-password');
+    if (sanitizedBody === null) return;
+
+    const result = changePasswordSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { currentPassword, password } = result.data;
+
+    const user = await prisma.user.findFirst({
+      where: { id: payload.userId, deletedAt: null },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    const currentIsValid = await compare(currentPassword, user.passwordHash);
+    if (!currentIsValid) {
+      logger.security('Change-password rejected — current password incorrect', {
+        userId: user.id,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { currentPassword: ['That is not your current password'] },
+      });
+      return;
+    }
+
+    const passwordHash = await hash(password, 12);
+
+    // Stamping passwordChangedAt retires every token minted before now — this
+    // one included, so the caller is deliberately logged out and must sign in
+    // again. That is the point: if a thief held a session, it dies here.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordChangedAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        // A pending email change outlives the credential it was made with
+        // unless it is torn down here. `confirmEmailChange` needs no session
+        // and no password, so a request made by a thief would still land after
+        // the owner had rotated the password to lock them out — and the notice
+        // email tells them to do exactly that.
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailExpiry: null,
+      },
+    });
+
+    logger.security('Password changed — existing sessions invalidated', {
+      userId: user.id,
+      ip: req.ip,
+    });
+
+    clearSessionCookie(res);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Password changed successfully. Please log in again.',
+      },
+    });
+  } catch (error) {
+    logger.error('Change-password error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Start an email change. Nothing is rewritten here — the new address is parked
+ * on the row until the link sent to it is opened, so a typo or a hijacked
+ * session cannot strand the real owner outside their own account.
+ */
+export const requestEmailChange = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-email');
+    if (sanitizedBody === null) return;
+
+    const result = updateEmailSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { newEmail, currentPassword } = result.data;
+
+    const user = await prisma.user.findFirst({
+      where: { id: payload.userId, deletedAt: null },
+      select: { id: true, name: true, email: true, passwordHash: true },
+    });
+
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    // Checked before anything else is looked up: a caller who cannot prove the
+    // password learns nothing about which addresses are already registered.
+    const currentIsValid = await compare(currentPassword, user.passwordHash);
+    if (!currentIsValid) {
+      logger.security('Email change rejected — current password incorrect', {
+        userId: user.id,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { currentPassword: ['That is not your current password'] },
+      });
+      return;
+    }
+
+    if (user.email === newEmail) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { newEmail: ['That is already your email address'] },
+      });
+      return;
+    }
+
+    const taken = await prisma.user.findFirst({
+      where: { email: newEmail, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (taken) {
+      res.status(409).json({
+        error: 'Validation failed.',
+        errors: { newEmail: ['That email address is already in use'] },
+      });
+      return;
+    }
+
+    const pending = generateOneTimeToken();
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        pendingEmail: newEmail,
+        pendingEmailToken: pending.hash,
+        pendingEmailExpiry: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+      },
+    });
+
+    logger.security('Email change requested', {
+      userId: user.id,
+      ip: req.ip,
+    });
+
+    // Delivery is not awaited: a slow mail provider should not hold the request
+    // open, and the pending change is already durable.
+    sendEmailChangeVerification(newEmail, user.name, pending.raw).catch((err) => {
+      logger.error('Email-change verification send failed', {
+        userId: user.id,
+        errorMessage: (err as Error).message,
+      });
+    });
+
+    // The old address is the only channel the requester does not control.
+    sendEmailChangeNotice(user.email, user.name, newEmail).catch((err) => {
+      logger.error('Email-change notice send failed', {
+        userId: user.id,
+        errorMessage: (err as Error).message,
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Verification email sent successfully. Please check your inbox.',
+        pendingEmail: newEmail,
+      },
+    });
+  } catch (error) {
+    logger.error('Update-email error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Finish an email change from the link. Public by design — the link is often
+ * opened on the phone rather than the device that started it, and holding the
+ * token is the proof that matters.
+ */
+export const confirmEmailChange = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sanitizedBody = screenBody(req, res, 'Confirm-email-change');
+    if (sanitizedBody === null) return;
+
+    const token = (sanitizedBody as { token?: unknown })?.token;
+    if (typeof token !== 'string' || token.length === 0) {
+      res.status(400).json({ error: 'Confirmation token is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        pendingEmailToken: hashToken(token),
+        pendingEmailExpiry: { gt: new Date() },
+        deletedAt: null,
+      },
+      select: { id: true, name: true, pendingEmail: true },
+    });
+
+    if (!user?.pendingEmail) {
+      res.status(400).json({ error: 'This confirmation link is invalid or has expired.' });
+      return;
+    }
+
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: user.pendingEmail,
+          // Opening the link is itself proof the address works.
+          emailVerified: new Date(),
+          pendingEmail: null,
+          pendingEmailToken: null,
+          pendingEmailExpiry: null,
+        },
+      });
+    } catch (error) {
+      // Someone else claimed the address between the request and the click.
+      if ((error as { code?: string }).code === 'P2002') {
+        res.status(409).json({ error: 'That email address is already in use.' });
+        return;
+      }
+      throw error;
+    }
+
+    logger.security('Email change confirmed', { userId: user.id, ip: req.ip });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Email address updated successfully.',
+        email: user.pendingEmail,
+        name: user.name,
+      },
+    });
+  } catch (error) {
+    logger.error('Confirm-email-change error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Hand the browser a short-lived URL to PUT a profile photo straight to storage.
+ * The bytes never touch this server: it only decides what may be uploaded and
+ * under what key.
+ */
+export const getAvatarUploadUrl = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const filename = typeof req.query.filename === 'string' ? req.query.filename : '';
+    const fileSize = Number(req.query.fileSize);
+
+    if (!filename) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { filename: ['filename query parameter is required'] },
+      });
+      return;
+    }
+
+    if (!isAllowedAvatar(filename)) {
+      res.status(415).json({
+        error: `Unsupported file type. Allowed: ${allowedAvatarExtensions().join(', ')}`,
+      });
+      return;
+    }
+
+    // The browser checks this too, but the browser is not the one being trusted.
+    if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > AVATAR_MAX_BYTES) {
+      res.status(413).json({
+        error: `File too large. Maximum size is ${AVATAR_MAX_BYTES / (1024 * 1024)}MB.`,
+      });
+      return;
+    }
+
+    // Missing config is an environment problem, not a server fault — 503 says
+    // "not wired up here" rather than burying it in a generic 500.
+    if (!isStorageConfigured()) {
+      logger.error('Avatar upload URL requested but object storage is not configured');
+      res.status(503).json({ error: 'Photo uploads are not configured on this environment.' });
+      return;
+    }
+
+    const data = await createAvatarUploadUrl(filename);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    logger.error('Avatar upload URL error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Point the account at an uploaded photo. The key arrives from the browser, so
+ * it is only written once proved to be one this server minted.
+ */
+export const updateAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-avatar');
+    if (sanitizedBody === null) return;
+
+    const result = updateAvatarSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { key } = result.data;
+
+    if (!isMintedAvatarKey(key)) {
+      logger.security('Update-avatar rejected — key was not minted by this server', {
+        userId: payload.userId,
+        ip: req.ip,
+      });
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: { key: ['That upload could not be verified. Please try again.'] },
+      });
+      return;
+    }
+
+    const user = await prisma.user.updateMany({
+      where: { id: payload.userId, deletedAt: null },
+      data: { image: key },
+    });
+
+    if (user.count === 0) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Profile photo updated successfully!',
+        // Signed here so the screen can show the new photo without a round trip.
+        image: await resolveAvatarUrl(key),
+      },
+    });
+  } catch (error) {
+    logger.error('Update-avatar error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
+/**
+ * Change the display name. The session JWT does not carry the name, so unlike
+ * an email change there is no token to re-sign — the next read simply sees the
+ * new value.
+ */
+export const updateName = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payload = (req as AuthenticatedRequest).user;
+
+    const sanitizedBody = screenBody(req, res, 'Update-name');
+    if (sanitizedBody === null) return;
+
+    const result = updateNameSchema.safeParse(sanitizedBody);
+    if (!result.success) {
+      res.status(422).json({
+        error: 'Validation failed.',
+        errors: result.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { name } = result.data;
+
+    const updated = await prisma.user.updateMany({
+      where: { id: payload.userId, deletedAt: null },
+      data: { name },
+    });
+
+    if (updated.count === 0) {
+      res.status(401).json({ error: 'Unauthorized: account not found.' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Name updated successfully!', name },
+    });
+  } catch (error) {
+    logger.error('Update-name error', {
+      errorMessage: (error as Error).message,
+      ip: req.ip,
+    });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
+  }
+};
+
 export const onboarding = async (req: Request, res: Response): Promise<void> => {
   try {
     const payload = (req as AuthenticatedRequest).user;
@@ -693,7 +1148,7 @@ export const onboarding = async (req: Request, res: Response): Promise<void> => 
     });
 
     // Re-sign the JWT with the updated claims so the frontend refreshes its session
-    const sessionUser = toSessionUser(user);
+    const sessionUser = await toSessionUser(user);
     const token = signSessionToken({
       userId: user.id,
       role: user.role,

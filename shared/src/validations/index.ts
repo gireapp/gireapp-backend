@@ -35,9 +35,10 @@ export const registerSchema = z.object({
     .trim(),
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
     .max(255, 'Email must be under 255 characters')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')
@@ -84,8 +85,9 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export const loginSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -94,8 +96,9 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export const forgotPasswordSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
 });
 
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
@@ -103,8 +106,9 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export const resendVerificationSchema = z.object({
   email: z
     .string()
+    .trim()
     .email('Please enter a valid email address')
-    .transform((e) => e.toLowerCase().trim()),
+    .transform((e) => e.toLowerCase()),
 });
 
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
@@ -126,6 +130,92 @@ export const resetPasswordSchema = z.object({
 });
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/**
+ * Changing a password from inside the account, where the current password is
+ * the proof of identity — unlike the reset flow, which proves it by email.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Please enter your current password'),
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .max(128, 'Password must be under 128 characters')
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+        'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+      ),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
+  .refine((data) => data.currentPassword !== data.password, {
+    message: 'Your new password must be different from your current one',
+    path: ['password'],
+  });
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/**
+ * Changing the account's email from inside the account. The address is typed
+ * twice because a typo here is unrecoverable — the confirmation link goes to
+ * the new address, and nobody would ever receive it. The current password is
+ * required because a live session alone is not proof of ownership: whoever holds
+ * one could otherwise move the account to an inbox the real owner cannot reach.
+ */
+export const updateEmailSchema = z
+  .object({
+    // Trimmed before the address is judged: a trailing space survives a
+    // copy-paste far more often than a typo does.
+    newEmail: z
+      .string()
+      .trim()
+      .email('Please enter a valid email address')
+      .max(255, 'Email must be under 255 characters')
+      .transform((e) => e.toLowerCase()),
+    confirmEmail: z
+      .string()
+      .trim()
+      .min(1, 'Please confirm your new email address')
+      .transform((e) => e.toLowerCase()),
+    currentPassword: z
+      .string()
+      .min(1, 'Please enter your current password'),
+  })
+  .refine((data) => data.newEmail === data.confirmEmail, {
+    message: 'Email addresses do not match',
+    path: ['confirmEmail'],
+  });
+
+export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
+
+/**
+ * Saving a profile photo. The browser uploads straight to storage and reports
+ * the key back, so `key` arrives as untrusted input — the server checks it is
+ * one it minted before writing it to the row.
+ */
+export const updateAvatarSchema = z.object({
+  key: z.string().min(1, 'Please choose a photo to upload'),
+});
+
+export type UpdateAvatarInput = z.infer<typeof updateAvatarSchema>;
+
+/**
+ * Changing the display name. Trimmed before it is measured, so surrounding
+ * spaces cannot pad a one-character name past the minimum.
+ */
+export const updateNameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Name must be at least 2 characters')
+    .max(100, 'Name must be under 100 characters'),
+});
+
+export type UpdateNameInput = z.infer<typeof updateNameSchema>;
 
 // ── Onboarding Schemas ──
 

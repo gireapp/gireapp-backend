@@ -5,6 +5,11 @@ import {
   buildObjectKey,
   isMintedObjectKey,
   isObjectKey,
+  isAllowedAvatar,
+  buildAvatarKey,
+  isMintedAvatarKey,
+  allowedAvatarExtensions,
+  AVATAR_MAX_BYTES,
 } from '../../services/storage';
 
 describe('extensionOf', () => {
@@ -111,5 +116,66 @@ describe('isMintedObjectKey', () => {
 
     expect(isMintedObjectKey(`${valid}\n`)).toBe(false);
     expect(isMintedObjectKey(`${valid}\r\n`)).toBe(false);
+  });
+});
+
+describe('isAllowedAvatar', () => {
+  it.each(['me.jpg', 'me.jpeg', 'me.png', 'SHOUTED.PNG'])('accepts %s', (name) =>
+    expect(isAllowedAvatar(name)).toBe(true)
+  );
+
+  it.each(['me.svg', 'me.gif', 'me.webp', 'me.pdf', 'me.mp4', 'noextension'])(
+    'rejects %s',
+    (name) => expect(isAllowedAvatar(name)).toBe(false)
+  );
+
+  it('rejects an SVG disguised by a leading allowed extension', () => {
+    // SVG carries script, so it is the one image type deliberately left out.
+    expect(isAllowedAvatar('me.png.svg')).toBe(false);
+  });
+
+  it('offers exactly the formats the Change Photo screen promises', () => {
+    expect(allowedAvatarExtensions().sort()).toEqual(['.jpeg', '.jpg', '.png']);
+  });
+
+  it('caps uploads at the 5MB the screen promises', () => {
+    expect(AVATAR_MAX_BYTES).toBe(5 * 1024 * 1024);
+  });
+});
+
+describe('buildAvatarKey', () => {
+  it('namespaces photos away from lesson media', () => {
+    const key = buildAvatarKey('Selfie.JPG');
+
+    expect(key.startsWith('avatars/')).toBe(true);
+    expect(key.endsWith('.jpg')).toBe(true);
+  });
+
+  it('never reuses a key for the same filename', () => {
+    expect(buildAvatarKey('me.png')).not.toBe(buildAvatarKey('me.png'));
+  });
+});
+
+describe('isMintedAvatarKey', () => {
+  it('accepts a key it just minted', () => {
+    expect(isMintedAvatarKey(buildAvatarKey('me.png'))).toBe(true);
+  });
+
+  it('rejects a traversal that merely starts with the prefix', () => {
+    expect(isMintedAvatarKey('avatars/../lessons/paid-course.pdf')).toBe(false);
+  });
+
+  it('rejects a lesson key offered as a profile photo', () => {
+    expect(isMintedAvatarKey(buildObjectKey('notes.pdf'))).toBe(false);
+  });
+
+  it('rejects a well-formed key with a disallowed extension', () => {
+    expect(
+      isMintedAvatarKey('avatars/11111111-1111-1111-1111-111111111111.svg')
+    ).toBe(false);
+  });
+
+  it('rejects a key whose id is not a uuid', () => {
+    expect(isMintedAvatarKey('avatars/me.png')).toBe(false);
   });
 });

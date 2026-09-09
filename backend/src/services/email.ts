@@ -280,6 +280,135 @@ export async function sendPasswordResetEmail(
   });
 }
 
+/**
+ * Confirmation link for an email change, sent to the *new* address. Opening it
+ * is what actually rewrites the account's email — proof the address works and
+ * that the person asking can read it.
+ */
+export async function sendEmailChangeVerification(
+  to: string,
+  name: string,
+  token: string
+): Promise<void> {
+  const confirmUrl = `${APP_URL}/confirm-email-change?token=${token}`;
+
+  return sendEmail({
+    to,
+    subject: 'Confirm your new GIREAPP email address',
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="color: #3730A3; font-size: 28px; margin: 0;">GIREAPP</h1>
+        </div>
+        <h2 style="color: #0F172A; font-size: 20px;">Hi ${escapeHtml(name)},</h2>
+        <p style="color: #334155; font-size: 16px; line-height: 1.6;">
+          You asked to use this address for your GIREAPP account. Confirm it below and
+          it becomes the address you sign in with.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${confirmUrl}"
+             style="display: inline-block; padding: 14px 32px; background: #3730A3; color: #FFFFFF;
+                    text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+            Confirm Email Address
+          </a>
+        </div>
+        <p style="color: #64748B; font-size: 14px;">
+          This link expires in 24 hours. Until you open it, nothing changes — you keep
+          signing in with your current address.
+        </p>
+        <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 32px 0;" />
+        <p style="color: #94A3B8; font-size: 12px; text-align: center;">
+          &copy; ${new Date().getFullYear()} GIREAPP &mdash; Enabling Academic Excellence Across Africa
+        </p>
+      </div>
+    `,
+  });
+}
+
+/**
+ * Heads-up to the *current* address that a change was requested. The change
+ * itself needs only a live session, so this is how the real owner finds out
+ * that someone is trying to move the account somewhere they cannot follow.
+ */
+export async function sendEmailChangeNotice(
+  to: string,
+  name: string,
+  newEmail: string
+): Promise<void> {
+  return sendEmail({
+    to,
+    subject: 'A change to your GIREAPP email address was requested',
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="color: #3730A3; font-size: 28px; margin: 0;">GIREAPP</h1>
+        </div>
+        <h2 style="color: #0F172A; font-size: 20px;">Hi ${escapeHtml(name)},</h2>
+        <p style="color: #334155; font-size: 16px; line-height: 1.6;">
+          Someone signed in to your account and asked to move it to
+          <strong>${escapeHtml(newEmail)}</strong>. The change only takes effect once the
+          link sent to that address is opened.
+        </p>
+        <p style="color: #334155; font-size: 16px; line-height: 1.6;">
+          If that was you, there is nothing to do. <strong>If it was not</strong>, change your
+          password now &mdash; that signs out every device, including whoever made this request.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${APP_URL}/forgot-password"
+             style="display: inline-block; padding: 14px 32px; background: #3730A3; color: #FFFFFF;
+                    text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+            Secure My Account
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 32px 0;" />
+        <p style="color: #94A3B8; font-size: 12px; text-align: center;">
+          &copy; ${new Date().getFullYear()} GIREAPP &mdash; Enabling Academic Excellence Across Africa
+        </p>
+      </div>
+    `,
+  });
+}
+
+/**
+ * A support request from inside the account. Kept separate from the mentorship
+ * form: that one reaches counselling staff, this one reaches support, and a
+ * ticket landing in the wrong inbox is one nobody answers.
+ *
+ * The sender is taken from the account, never from the request body, so a
+ * request cannot be made to look as though it came from someone else.
+ */
+export async function sendSupportRequestEmail(
+  fromName: string,
+  fromEmail: string,
+  subject: string,
+  message: string,
+  urgency: string
+): Promise<void> {
+  const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@gireapp.com';
+
+  return sendEmail({
+    to: supportEmail,
+    subject: `[Support · ${urgency}] ${subject}`,
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <h2 style="color: #3730A3; font-size: 20px;">New Support Request</h2>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">From:</td><td style="padding: 8px;">${escapeHtml(fromName)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Email:</td><td style="padding: 8px;">${escapeHtml(fromEmail)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Urgency:</td><td style="padding: 8px;">${escapeHtml(urgency)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Subject:</td><td style="padding: 8px;">${escapeHtml(subject)}</td></tr>
+        </table>
+        <div style="background: #F1F5F9; padding: 16px; border-radius: 8px; margin-top: 16px;">
+          <p style="color: #334155; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(message)}</p>
+        </div>
+        <p style="color: #94A3B8; font-size: 12px; margin-top: 24px;">
+          Reply to this learner at ${escapeHtml(fromEmail)}.
+        </p>
+      </div>
+    `,
+  });
+}
+
 /** Send counselling/mentorship request notification */
 export async function sendContactFormEmail(
   fromName: string,
