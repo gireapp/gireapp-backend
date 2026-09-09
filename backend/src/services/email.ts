@@ -369,6 +369,46 @@ export async function sendEmailChangeNotice(
   });
 }
 
+/**
+ * A support request from inside the account. Kept separate from the mentorship
+ * form: that one reaches counselling staff, this one reaches support, and a
+ * ticket landing in the wrong inbox is one nobody answers.
+ *
+ * The sender is taken from the account, never from the request body, so a
+ * request cannot be made to look as though it came from someone else.
+ */
+export async function sendSupportRequestEmail(
+  fromName: string,
+  fromEmail: string,
+  subject: string,
+  message: string,
+  urgency: string
+): Promise<void> {
+  const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@gireapp.com';
+
+  return sendEmail({
+    to: supportEmail,
+    subject: `[Support · ${urgency}] ${subject}`,
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+        <h2 style="color: #3730A3; font-size: 20px;">New Support Request</h2>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">From:</td><td style="padding: 8px;">${escapeHtml(fromName)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Email:</td><td style="padding: 8px;">${escapeHtml(fromEmail)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Urgency:</td><td style="padding: 8px;">${escapeHtml(urgency)}</td></tr>
+          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Subject:</td><td style="padding: 8px;">${escapeHtml(subject)}</td></tr>
+        </table>
+        <div style="background: #F1F5F9; padding: 16px; border-radius: 8px; margin-top: 16px;">
+          <p style="color: #334155; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(message)}</p>
+        </div>
+        <p style="color: #94A3B8; font-size: 12px; margin-top: 24px;">
+          Reply to this learner at ${escapeHtml(fromEmail)}.
+        </p>
+      </div>
+    `,
+  });
+}
+
 /** Send counselling/mentorship request notification */
 export async function sendContactFormEmail(
   fromName: string,
