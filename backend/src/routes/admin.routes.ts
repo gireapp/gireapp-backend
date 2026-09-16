@@ -6,12 +6,16 @@ import {
   listStudents,
   listCourseOptions,
 } from '../controllers/admin.controller';
+import { getAdminOverview } from '../controllers/admin-overview.controller';
 import { requireAuth, requireStaff } from '../middlewares/auth.middleware';
 
 const router = Router();
 
 // Every /api/admin/* route is JWT-guarded and staff-only (BE-ADMIN-001).
 router.use(requireAuth, requireStaff);
+
+// /api/admin/overview
+router.get('/overview', getAdminOverview);
 
 // /api/admin/courses
 router.post('/courses', createCourse);

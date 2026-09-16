@@ -70,6 +70,7 @@ export const API_PATHS = {
     COURSES: '/api/admin/courses',
     USERS: '/api/admin/users',
     STUDENTS: '/api/admin/students',
+    OVERVIEW: '/api/admin/overview',
   },
   HEALTH: '/api/health',
 } as const;

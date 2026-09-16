@@ -263,3 +263,59 @@ export interface StudentListItem {
   /** Percent complete (0-100) of `course`; null whenever `course` is null. */
   progress: number | null;
 }
+
+// ── Admin: Dashboard Overview ──
+
+/** A headline count with the change over the trailing seven days. */
+export interface AdminTotal {
+  value: number;
+  addedThisWeek: number;
+}
+
+/** One day of the 30-day growth chart. `date` is an ISO calendar date. */
+export interface AdminGrowthPoint {
+  date: string;
+  registered: number;
+  active: number;
+}
+
+export interface AdminTrackShare {
+  academicLevel: AcademicLevel;
+  count: number;
+  /** Whole percent of students who have picked a track (untracked excluded). */
+  percentage: number;
+}
+
+/**
+ * Activity kinds the schema can actually attest to. The design also shows
+ * "Mentor assigned", which has no model behind it and is therefore absent
+ * rather than faked.
+ */
+export const ADMIN_ACTIVITY_TYPES = ['STUDENT_REGISTERED', 'QUIZ_CREATED'] as const;
+export type AdminActivityType = (typeof ADMIN_ACTIVITY_TYPES)[number];
+
+export interface AdminActivity {
+  id: string;
+  type: AdminActivityType;
+  /** The line under the heading, e.g. "Ola Aina joined the Tertiary track". */
+  detail: string;
+  /** ISO timestamp; the client renders it as "2 mins ago". */
+  at: string;
+}
+
+export interface AdminSubjectEnrolments {
+  subject: string;
+  enrolments: number;
+}
+
+export interface AdminOverview {
+  students: AdminTotal;
+  courses: AdminTotal;
+  quizzes: AdminTotal;
+  growth: AdminGrowthPoint[];
+  trackDistribution: AdminTrackShare[];
+  recentActivity: AdminActivity[];
+  topSubjects: AdminSubjectEnrolments[];
+  /** Whole percent of enrolments finished; null when nobody has enrolled. */
+  courseCompletionRate: number | null;
+}
