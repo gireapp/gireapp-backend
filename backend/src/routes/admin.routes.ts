@@ -7,6 +7,7 @@ import {
   listCourseOptions,
 } from '../controllers/admin.controller';
 import { getAdminOverview } from '../controllers/admin-overview.controller';
+import { getAdminAnalytics } from '../controllers/admin-analytics.controller';
 import { requireAuth, requireStaff } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -16,6 +17,9 @@ router.use(requireAuth, requireStaff);
 
 // /api/admin/overview
 router.get('/overview', getAdminOverview);
+
+// /api/admin/analytics?rangeDays=&academicLevel=&courseId=&groupBy=
+router.get('/analytics', getAdminAnalytics);
 
 // /api/admin/courses
 router.post('/courses', createCourse);

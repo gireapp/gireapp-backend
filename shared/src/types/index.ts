@@ -319,3 +319,76 @@ export interface AdminOverview {
   /** Whole percent of enrolments finished; null when nobody has enrolled. */
   courseCompletionRate: number | null;
 }
+
+// ── Admin: Analytics ──
+
+/** Date-range choices on the analytics filter bar, in days. */
+export const ANALYTICS_RANGE_DAYS = [7, 30, 90] as const;
+export type AnalyticsRangeDays = (typeof ANALYTICS_RANGE_DAYS)[number];
+
+/** How the registration chart buckets its points. */
+export const ANALYTICS_GROUPINGS = ['DAILY', 'WEEKLY'] as const;
+export type AnalyticsGrouping = (typeof ANALYTICS_GROUPINGS)[number];
+
+/** How many weeks after sign-up the retention chart follows a cohort. */
+export const RETENTION_WEEKS = 5;
+
+export interface AdminRegistrationPoint {
+  /** First day of the bucket, as an ISO calendar date. */
+  date: string;
+  byTrack: Record<AcademicLevel, number>;
+}
+
+/**
+ * Share of quiz attempts that met the quiz's pass mark. The design calls this
+ * "completion", but an attempt is only recorded once it is submitted — there is
+ * no row for a quiz started and abandoned — so completion would always be 100%.
+ */
+export interface AdminSubjectPassRate {
+  subject: string;
+  attempts: number;
+  /** Whole percent. */
+  passRate: number;
+}
+
+/**
+ * Of the students who signed up in the period, the share active during their
+ * Nth week after signing up. `rate` is null until at least one of them has been
+ * signed up long enough for that week to have finished.
+ */
+export interface AdminRetentionWeek {
+  week: number;
+  /** Students whose Nth week has fully elapsed. */
+  eligible: number;
+  /** Whole percent of `eligible`; null when nobody is eligible yet. */
+  rate: number | null;
+}
+
+export interface AdminTopStudent {
+  id: string;
+  name: string;
+  image: string | null;
+  academicLevel: AcademicLevel | null;
+  points: number;
+  quizzesTaken: number;
+}
+
+export interface AdminAnalytics {
+  period: {
+    /** ISO timestamps bounding the date-range filter. */
+    from: string;
+    to: string;
+    rangeDays: AnalyticsRangeDays;
+    groupBy: AnalyticsGrouping;
+  };
+  students: AdminTotal;
+  courses: AdminTotal;
+  quizzes: AdminTotal;
+  registrations: AdminRegistrationPoint[];
+  trackDistribution: AdminTrackShare[];
+  quizPassRates: AdminSubjectPassRate[];
+  retention: AdminRetentionWeek[];
+  topStudents: AdminTopStudent[];
+  topSubjects: AdminSubjectEnrolments[];
+  courseCompletionRate: number | null;
+}
