@@ -1,43 +1,29 @@
 import { Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
 import type {
   AcademicLevel,
   AdminActivity,
   AdminGrowthPoint,
   AdminOverview,
   AdminSubjectEnrolments,
-  AdminTotal,
-  AdminTrackShare,
 } from '@gireapp/shared';
 import { prisma } from '../services/prisma';
+import {
+  COMPLETE_PROGRESS,
+  LIVE_STUDENT,
+  WEEK_DAYS,
+  daysAgo,
+  isoDate,
+  startOfDayUtcDaysAgo,
+  toTotal,
+  toTrackDistribution,
+  wholePercent,
+} from '../utils/admin-metrics';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 
 const GROWTH_WINDOW_DAYS = 30;
-const WEEK_DAYS = 7;
 const RECENT_ACTIVITY_LIMIT = 5;
 const TOP_SUBJECTS_LIMIT = 5;
-const PERCENT = 100;
-/** Enrolment.progress is a 0–1 fraction; 1 means the course is finished. */
-const COMPLETE_PROGRESS = 1;
-
-const LIVE_STUDENT: Prisma.UserWhereInput = { role: 'STUDENT', deletedAt: null };
-
-function daysAgo(days: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date;
-}
-
-/** Midnight UTC of the day `days` ago — the left edge of the growth window. */
-function startOfDayUtcDaysAgo(days: number): Date {
-  const date = daysAgo(days);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 type DailyCount = { day: Date; count: number };
 
@@ -64,29 +50,6 @@ export function buildGrowthSeries(
       active: activeByDay.get(date) ?? 0,
     };
   });
-}
-
-/**
- * Shares of the students who have picked a track. Students without one are
- * dropped *before* dividing: counting them in the denominator made the three
- * shares sum to less than 100 and left a hole in the donut.
- */
-export function toTrackDistribution(
-  groups: { academicLevel: AcademicLevel | null; _count: number }[]
-): AdminTrackShare[] {
-  const tracked = groups.filter(
-    (group): group is { academicLevel: AcademicLevel; _count: number } =>
-      group.academicLevel !== null
-  );
-  const trackedTotal = tracked.reduce((sum, group) => sum + group._count, 0);
-
-  return tracked
-    .map((group) => ({
-      academicLevel: group.academicLevel,
-      count: group._count,
-      percentage: trackedTotal === 0 ? 0 : Math.round((group._count / trackedTotal) * PERCENT),
-    }))
-    .sort((a, b) => b.count - a.count);
 }
 
 /**
@@ -119,10 +82,6 @@ export function mergeActivity(
 
 function titleCase(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase();
-}
-
-function toTotal(value: number, addedThisWeek: number): AdminTotal {
-  return { value, addedThisWeek };
 }
 
 export const getAdminOverview = async (req: Request, res: Response): Promise<void> => {
@@ -210,10 +169,7 @@ export const getAdminOverview = async (req: Request, res: Response): Promise<voi
       trackDistribution: toTrackDistribution(trackGroups),
       recentActivity: mergeActivity(newStudents, newQuizzes),
       topSubjects: topSubjects as AdminSubjectEnrolments[],
-      courseCompletionRate:
-        totalEnrolments === 0
-          ? null
-          : Math.round((completedEnrolments / totalEnrolments) * PERCENT),
+      courseCompletionRate: wholePercent(completedEnrolments, totalEnrolments),
     };
 
     res.status(200).json({ success: true, data: overview });

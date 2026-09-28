@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildGrowthSeries,
-  toTrackDistribution,
-  mergeActivity,
-} from '../admin-overview.controller';
+import { buildGrowthSeries, mergeActivity } from '../admin-overview.controller';
+import { toTrackDistribution } from '../../utils/admin-metrics';
 
 const SINCE = new Date(Date.UTC(2026, 7, 1));
 
