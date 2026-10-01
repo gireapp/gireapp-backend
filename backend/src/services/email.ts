@@ -5,6 +5,7 @@
 
 import { Resend } from 'resend';
 import { logger } from '../utils/logger';
+import { FRONTEND_ORIGIN } from '../config/origins';
 
 let resendClient: Resend | null = null;
 
@@ -42,9 +43,9 @@ function getResend(): Resend {
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'GIREAPP <noreply@gireapp.com>';
-// Links in emails must point at the deployed frontend
-const APP_URL =
-  process.env.FRONTEND_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+// Links in emails must point at the deployed frontend — one origin, validated
+// in config/env.ts, so a CORS allowlist can never leak into a link.
+const APP_URL = FRONTEND_ORIGIN;
 
 /** Escape user-controlled values before interpolating them into email HTML (BE-SEC-M2) */
 function escapeHtml(input: string): string {

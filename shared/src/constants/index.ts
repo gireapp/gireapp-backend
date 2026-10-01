@@ -69,6 +69,9 @@ export const API_PATHS = {
   ADMIN: {
     COURSES: '/api/admin/courses',
     USERS: '/api/admin/users',
+    STUDENTS: '/api/admin/students',
+    OVERVIEW: '/api/admin/overview',
+    ANALYTICS: '/api/admin/analytics',
   },
   HEALTH: '/api/health',
 } as const;

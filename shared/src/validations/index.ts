@@ -4,7 +4,16 @@
 // ─────────────────────────────────────────────────
 
 import { z } from 'zod';
-import { ACADEMIC_LEVELS, MOOD_THEMES, DEPARTMENTS } from '../types/index.js';
+import {
+  ACADEMIC_LEVELS,
+  MOOD_THEMES,
+  DEPARTMENTS,
+  STUDENT_STATUSES,
+  ANALYTICS_RANGE_DAYS,
+  ANALYTICS_GROUPINGS,
+  type AnalyticsRangeDays,
+} from '../types/index.js';
+import { PAGINATION } from '../constants/index.js';
 
 // ── Auth Schemas ──
 
@@ -363,3 +372,38 @@ export const uploadRequestSchema = z.object({
 });
 
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;
+
+// ── Admin: Student Listing ──
+
+export const studentListQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  courseId: z.string().cuid('Invalid course ID').optional(),
+  academicLevel: z.enum(ACADEMIC_LEVELS).optional(),
+  status: z.enum(STUDENT_STATUSES).optional(),
+  page: z.coerce.number().int().min(1).default(PAGINATION.DEFAULT_PAGE),
+  limit: z.coerce.number().int().min(1).max(PAGINATION.MAX_LIMIT).default(PAGINATION.DEFAULT_LIMIT),
+});
+
+export type StudentListQuery = z.infer<typeof studentListQuerySchema>;
+
+// ── Admin: Analytics ──
+
+const DEFAULT_ANALYTICS_RANGE_DAYS: AnalyticsRangeDays = 30;
+
+function isAnalyticsRange(days: number): days is AnalyticsRangeDays {
+  return (ANALYTICS_RANGE_DAYS as readonly number[]).includes(days);
+}
+
+export const analyticsQuerySchema = z.object({
+  rangeDays: z.coerce
+    .number()
+    .refine(isAnalyticsRange, {
+      message: `Range must be one of ${ANALYTICS_RANGE_DAYS.join(', ')} days`,
+    })
+    .default(DEFAULT_ANALYTICS_RANGE_DAYS),
+  academicLevel: z.enum(ACADEMIC_LEVELS).optional(),
+  courseId: z.string().cuid('Invalid course ID').optional(),
+  groupBy: z.enum(ANALYTICS_GROUPINGS).default('DAILY'),
+});
+
+export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;

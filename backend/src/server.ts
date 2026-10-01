@@ -1,6 +1,7 @@
 // Loads dotenv + validates AUTH_SECRET; must be the first import so env is
 // ready before hoisted module imports read process.env
 import "./config/env";
+import { CORS_ORIGINS } from "./config/origins";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -28,16 +29,10 @@ app.use(express.json({ limit: '1mb' }));  // Limit body size to prevent DoS
 app.use(cookieParser());
 app.use(globalLimiter);
 
-// CORS — comma-separated allowlist, e.g. "https://app.gireapp.com,https://staging.gireapp.com"
-const ALLOWED_ORIGINS = (process.env.FRONTEND_URL || "http://localhost:3000")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser clients (no Origin header) and allowlisted origins
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    if (!origin || CORS_ORIGINS.includes(origin)) {
       callback(null, true);
     } else {
       logger.security('CORS: origin rejected', { origin });
