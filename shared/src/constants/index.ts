@@ -64,6 +64,7 @@ export const API_PATHS = {
   },
   QUIZZES: {
     DETAIL: (quizId: string) => `/api/quizzes/${quizId}`,
+    START: (quizId: string) => `/api/quizzes/${quizId}/start`,
     SUBMIT: (quizId: string) => `/api/quizzes/${quizId}/submit`,
   },
   ADMIN: {

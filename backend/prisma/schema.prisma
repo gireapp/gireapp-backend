@@ -304,6 +304,10 @@ model QuizAttempt {
   startedAt    DateTime @default(now())
   submittedAt  DateTime @default(now())
   timeTakenSec Int? // Actual seconds spent
+  /// Points this attempt actually paid out. Stored rather than recomputed,
+  /// because the payout depends on the attempts before it: a quiz pays at
+  /// most POINTS.QUIZ_PASS in total, however many times it is retaken.
+  pointsEarned Int      @default(0)
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -313,6 +317,9 @@ model QuizAttempt {
 
   @@index([userId, quizId])
   @@index([quizId])
+  /// `startedAt` is the server-issued start ticket's timestamp, so this makes
+  /// a ticket single-use: a double-clicked Submit cannot record two attempts.
+  @@unique([userId, quizId, startedAt])
   @@map("quiz_attempts")
 }
 
