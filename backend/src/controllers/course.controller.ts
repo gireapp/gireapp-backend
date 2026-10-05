@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
+import { historyFrom } from './quiz.controller';
 import { logger } from '../utils/logger';
 import { createDownloadUrl, isObjectKey, isStorageConfigured } from '../services/storage';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
@@ -377,6 +378,19 @@ export const getCourse = async (req: Request, res: Response): Promise<void> => {
           },
         },
         enrolments: { where: { userId }, select: { progress: true } },
+        quizzes: {
+          where: { published: true, questions: { some: {} } },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            difficulty: true,
+            timeLimitMin: true,
+            passingScore: true,
+            _count: { select: { questions: true } },
+            attempts: { where: { userId }, select: { score: true } },
+          },
+        },
       },
     });
 
@@ -397,6 +411,14 @@ export const getCourse = async (req: Request, res: Response): Promise<void> => {
       published: course.published,
       isEnrolled: Boolean(enrolment),
       progress: enrolment?.progress ?? 0,
+      quizzes: course.quizzes.map((quiz) => ({
+        id: quiz.id,
+        title: quiz.title,
+        difficulty: quiz.difficulty,
+        timeLimitMin: quiz.timeLimitMin,
+        questionCount: quiz._count.questions,
+        history: historyFrom(quiz.attempts, quiz.passingScore),
+      })),
       modules: course.modules.map((module) => ({
         id: module.id,
         title: module.title,

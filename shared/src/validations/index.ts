@@ -414,13 +414,14 @@ export function issuesByPath(error: z.ZodError): Record<string, string[]> {
   return byPath;
 }
 
+/**
+ * A learner's answers, keyed question id → choice id. Unanswered questions are
+ * simply absent and are marked wrong. The quiz id comes from the URL and the
+ * start time from the signed ticket, so neither is taken from the body.
+ */
 export const submitQuizSchema = z.object({
-  quizId: z.string().cuid('Invalid quiz ID'),
-  answers: z.record(
-    z.string().cuid('Invalid question ID'),
-    z.string().cuid('Invalid choice ID')
-  ),
-  startedAt: z.string().datetime('Invalid timestamp'),
+  ticket: z.string().min(1, 'Missing quiz ticket'),
+  answers: z.record(z.string().cuid('Invalid question'), z.string().cuid('Invalid answer')),
 });
 
 export type SubmitQuizInput = z.infer<typeof submitQuizSchema>;

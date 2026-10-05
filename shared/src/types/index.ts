@@ -170,6 +170,8 @@ export interface CourseDetail {
   thumbnailUrl: string | null;
   published: boolean;
   modules: ModuleDetail[];
+  /** Published quizzes with at least one question. */
+  quizzes: CourseQuizSummary[];
   isEnrolled: boolean;
   progress: number;
 }
@@ -208,33 +210,87 @@ export interface LessonDetail {
 
 // ── Quiz Types ──
 
-export interface QuizQuestion {
+/** A question as a learner sees it while taking a quiz — no correct answers. */
+export interface LearnerQuizQuestion {
   id: string;
   text: string;
-  choices: QuizChoice[];
-  order: number;
+  points: number;
+  choices: { id: string; text: string }[];
 }
 
-export interface QuizChoice {
+/** The learner's history with one quiz. */
+export interface LearnerQuizHistory {
+  attemptCount: number;
+  /** Null until the first attempt. */
+  bestScore: number | null;
+  passed: boolean;
+}
+
+/**
+ * What a learner sees before starting: enough to decide whether to begin, but
+ * no questions — those arrive with the start ticket, when the clock starts.
+ */
+export interface LearnerQuizIntro {
   id: string;
-  text: string;
-  order: number;
+  title: string;
+  description: string | null;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  passingScore: number;
+  questionCount: number;
+  totalPoints: number;
+  course: { id: string; title: string };
+  isEnrolled: boolean;
+  history: LearnerQuizHistory;
 }
 
-export interface QuizSubmission {
-  quizId: string;
-  answers: Record<string, string>; // { questionId: choiceId }
-  startedAt: string; // ISO timestamp
+/** Issued when a learner presses Start. */
+export interface StartedQuiz {
+  /**
+   * Signed by the server and carrying its own start time, so the time limit is
+   * enforced against the server's clock rather than one the client reports.
+   */
+  ticket: string;
+  /** ISO timestamp the client counts down to. */
+  expiresAt: string;
+  questions: LearnerQuizQuestion[];
+}
+
+export interface QuizReviewItem {
+  questionId: string;
+  text: string;
+  points: number;
+  choices: { id: string; text: string }[];
+  /** Null when the question was left unanswered. */
+  chosenChoiceId: string | null;
+  correctChoiceId: string;
+  isCorrect: boolean;
+  explanation: string | null;
 }
 
 export interface QuizResult {
+  attemptId: string;
+  /** Whole percent, weighted by each question's points. */
   score: number;
+  passingScore: number;
+  passed: boolean;
   totalRight: number;
   totalWrong: number;
-  passed: boolean;
   pointsEarned: number;
+  /** A badge this attempt newly unlocked, if any. */
   badgeEarned: BadgeType | null;
   timeTakenSec: number;
+  review: QuizReviewItem[];
+}
+
+/** A published quiz listed on its course page. */
+export interface CourseQuizSummary {
+  id: string;
+  title: string;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  questionCount: number;
+  history: LearnerQuizHistory;
 }
 
 // ── Admin: Student Listing ──
