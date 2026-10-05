@@ -72,6 +72,8 @@ export const API_PATHS = {
     STUDENTS: '/api/admin/students',
     OVERVIEW: '/api/admin/overview',
     ANALYTICS: '/api/admin/analytics',
+    QUIZZES: '/api/admin/quizzes',
+    QUIZ: (quizId: string) => `/api/admin/quizzes/${quizId}`,
   },
   HEALTH: '/api/health',
 } as const;

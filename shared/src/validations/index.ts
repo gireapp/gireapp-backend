@@ -12,6 +12,15 @@ import {
   ANALYTICS_RANGE_DAYS,
   ANALYTICS_GROUPINGS,
   type AnalyticsRangeDays,
+  QUIZ_DIFFICULTIES,
+  QUESTION_POINT_OPTIONS,
+  QUIZ_TIME_LIMIT_OPTIONS,
+  QUIZ_PASS_MARK_OPTIONS,
+  MIN_CHOICES,
+  MAX_CHOICES,
+  type QuestionPoints,
+  type QuizTimeLimit,
+  type QuizPassMark,
 } from '../types/index.js';
 import { PAGINATION } from '../constants/index.js';
 
@@ -286,37 +295,124 @@ export type CreateCourseInput = z.infer<typeof createCourseSchema>;
 
 // ── Quiz Schemas ──
 
-export const createQuizSchema = z.object({
-  courseId: z.string().cuid('Invalid course ID'),
-  title: z
-    .string()
-    .min(3, 'Title must be at least 3 characters')
-    .max(200, 'Title must be under 200 characters')
-    .trim(),
-  description: z.string().max(500).optional().nullable(),
-  timeLimitMin: z.number().int().min(1).max(180).default(30),
-  passingScore: z.number().int().min(1).max(100).default(70),
-  questions: z.array(
-    z.object({
-      text: z.string().min(5, 'Question text too short').max(1000).trim(),
-      explanation: z.string().max(500).optional().nullable(),
-      order: z.number().int().min(0),
-      choices: z.array(
-        z.object({
-          text: z.string().min(1, 'Choice text is required').max(500).trim(),
-          isCorrect: z.boolean(),
-          order: z.number().int().min(0),
-        })
-      ).min(2, 'Each question must have at least 2 choices')
-       .refine(
-         (choices) => choices.filter((c) => c.isCorrect).length === 1,
-         'Each question must have exactly one correct answer'
-       ),
-    })
-  ).min(1, 'Quiz must have at least one question'),
+const QUIZ_TITLE_MIN = 3;
+const QUIZ_TITLE_MAX = 200;
+const QUESTION_TEXT_MIN = 5;
+const MAX_QUESTIONS = 100;
+
+const quizChoiceSchema = z.object({
+  text: z.string().trim().max(500, 'Answer must be under 500 characters'),
+  isCorrect: z.boolean(),
 });
 
-export type CreateQuizInput = z.infer<typeof createQuizSchema>;
+const quizQuestionSchema = z.object({
+  text: z.string().trim().max(1000, 'Question must be under 1000 characters'),
+  explanation: z.string().trim().max(1000).optional().nullable(),
+  points: z.number().int().refine(isQuestionPoints, {
+    message: `Points must be one of ${QUESTION_POINT_OPTIONS.join(', ')}`,
+  }),
+  choices: z
+    .array(quizChoiceSchema)
+    .min(MIN_CHOICES, `Each question needs at least ${MIN_CHOICES} answers`)
+    .max(MAX_CHOICES, `Each question can have at most ${MAX_CHOICES} answers`),
+});
+
+function isQuestionPoints(points: number): points is QuestionPoints {
+  return (QUESTION_POINT_OPTIONS as readonly number[]).includes(points);
+}
+
+/**
+ * One schema for both saving a draft and publishing. A draft may be
+ * incomplete — empty questions, no correct answer yet — because the point of a
+ * draft is to come back to it. Publishing is what puts a quiz in front of
+ * learners, so only then is every question required to be answerable.
+ *
+ * Question order is the array order; there is no client-supplied `order`
+ * field for a request to get wrong.
+ */
+export const saveQuizSchema = z
+  .object({
+    courseId: z.string().cuid('Choose a subject'),
+    title: z
+      .string()
+      .trim()
+      .min(QUIZ_TITLE_MIN, `Title must be at least ${QUIZ_TITLE_MIN} characters`)
+      .max(QUIZ_TITLE_MAX, `Title must be under ${QUIZ_TITLE_MAX} characters`),
+    description: z.string().trim().max(500, 'Description must be under 500 characters').optional().nullable(),
+    difficulty: z.enum(QUIZ_DIFFICULTIES).optional().nullable(),
+    timeLimitMin: z.number().int().refine(isTimeLimit, {
+      message: `Time limit must be one of ${QUIZ_TIME_LIMIT_OPTIONS.join(', ')} minutes`,
+    }),
+    passingScore: z.number().int().refine(isPassMark, {
+      message: `Pass mark must be one of ${QUIZ_PASS_MARK_OPTIONS.join(', ')}%`,
+    }),
+    publish: z.boolean(),
+    questions: z.array(quizQuestionSchema).max(MAX_QUESTIONS, `A quiz can have at most ${MAX_QUESTIONS} questions`),
+  })
+  .superRefine((quiz, ctx) => {
+    if (!quiz.publish) return;
+
+    if (!quiz.difficulty) {
+      ctx.addIssue({ code: 'custom', path: ['difficulty'], message: 'Choose a difficulty before publishing' });
+    }
+    if (quiz.questions.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['questions'], message: 'Add at least one question before publishing' });
+    }
+
+    quiz.questions.forEach((question, index) => {
+      if (question.text.length < QUESTION_TEXT_MIN) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['questions', index, 'text'],
+          message: `Question ${index + 1} needs at least ${QUESTION_TEXT_MIN} characters`,
+        });
+      }
+      if (question.choices.some((choice) => choice.text.length === 0)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['questions', index, 'choices'],
+          message: `Question ${index + 1} has an empty answer`,
+        });
+      }
+      if (question.choices.filter((choice) => choice.isCorrect).length !== 1) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['questions', index, 'choices'],
+          message: `Mark exactly one correct answer for question ${index + 1}`,
+        });
+      }
+    });
+  });
+
+function isTimeLimit(minutes: number): minutes is QuizTimeLimit {
+  return (QUIZ_TIME_LIMIT_OPTIONS as readonly number[]).includes(minutes);
+}
+
+function isPassMark(percent: number): percent is QuizPassMark {
+  return (QUIZ_PASS_MARK_OPTIONS as readonly number[]).includes(percent);
+}
+
+export type SaveQuizInput = z.infer<typeof saveQuizSchema>;
+
+/**
+ * What a client sends before validation. `SaveQuizInput` is the parsed result,
+ * where points, time limit and pass mark are narrowed to their allowed values;
+ * a form holding unvalidated state can only honestly promise plain numbers.
+ */
+export type SaveQuizRequest = z.input<typeof saveQuizSchema>;
+
+/**
+ * Validation issues keyed by dotted path ("questions.2.choices"). `flatten()`
+ * only keeps top-level fields, which would lose every per-question message.
+ */
+export function issuesByPath(error: z.ZodError): Record<string, string[]> {
+  const byPath: Record<string, string[]> = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join('.') || '_form';
+    (byPath[key] ??= []).push(issue.message);
+  }
+  return byPath;
+}
 
 export const submitQuizSchema = z.object({
   quizId: z.string().cuid('Invalid quiz ID'),

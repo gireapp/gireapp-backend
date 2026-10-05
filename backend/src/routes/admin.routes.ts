@@ -8,6 +8,12 @@ import {
 } from '../controllers/admin.controller';
 import { getAdminOverview } from '../controllers/admin-overview.controller';
 import { getAdminAnalytics } from '../controllers/admin-analytics.controller';
+import {
+  listQuizzes,
+  getQuiz,
+  createQuiz,
+  updateQuiz,
+} from '../controllers/admin-quiz.controller';
 import { requireAuth, requireStaff } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -27,6 +33,12 @@ router.get('/courses', listCourseOptions);
 
 // /api/admin/students?search=&courseId=&academicLevel=&status=&page=&limit=
 router.get('/students', listStudents);
+
+// /api/admin/quizzes — drafts and published; tutors see only their own courses'
+router.get('/quizzes', listQuizzes);
+router.post('/quizzes', createQuiz);
+router.get('/quizzes/:quizId', getQuiz);
+router.put('/quizzes/:quizId', updateQuiz);
 
 // /api/admin/upload-url?filename=notes.pdf
 router.get('/upload-url', getUploadUrl);

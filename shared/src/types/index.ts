@@ -392,3 +392,66 @@ export interface AdminAnalytics {
   topSubjects: AdminSubjectEnrolments[];
   courseCompletionRate: number | null;
 }
+
+// ── Quiz Builder ──
+
+/** Mirrors the QuizDifficulty enum in prisma/schema.prisma. */
+export const QUIZ_DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
+export type QuizDifficulty = (typeof QUIZ_DIFFICULTIES)[number];
+
+/** The builder offers fixed choices rather than free numbers, as the design does. */
+export const QUESTION_POINT_OPTIONS = [1, 2, 5, 10] as const;
+export type QuestionPoints = (typeof QUESTION_POINT_OPTIONS)[number];
+
+export const QUIZ_TIME_LIMIT_OPTIONS = [10, 15, 20, 30, 45, 60, 90] as const;
+export type QuizTimeLimit = (typeof QUIZ_TIME_LIMIT_OPTIONS)[number];
+
+export const QUIZ_PASS_MARK_OPTIONS = [50, 60, 70, 80, 90] as const;
+export type QuizPassMark = (typeof QUIZ_PASS_MARK_OPTIONS)[number];
+
+export const MIN_CHOICES = 2;
+export const MAX_CHOICES = 6;
+
+export interface AdminQuizChoice {
+  text: string;
+  isCorrect: boolean;
+}
+
+export interface AdminQuizQuestion {
+  text: string;
+  /** Not editable in the builder; carried through so a save does not erase it. */
+  explanation: string | null;
+  points: number;
+  choices: AdminQuizChoice[];
+}
+
+/** A quiz as the builder edits it — correct answers included, staff only. */
+export interface AdminQuiz {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string | null;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  passingScore: number;
+  published: boolean;
+  questions: AdminQuizQuestion[];
+  /**
+   * Once learners have sat a quiz its questions are frozen: a stored attempt
+   * maps question ids to the choice picked, and replacing the questions would
+   * leave every past attempt pointing at nothing.
+   */
+  attemptCount: number;
+  updatedAt: string;
+}
+
+export interface AdminQuizSummary {
+  id: string;
+  title: string;
+  published: boolean;
+  difficulty: QuizDifficulty | null;
+  questionCount: number;
+  attemptCount: number;
+  course: { id: string; title: string; academicLevel: AcademicLevel };
+  updatedAt: string;
+}

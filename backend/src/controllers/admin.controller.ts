@@ -274,8 +274,9 @@ export const listStudents = async (req: Request, res: Response): Promise<void> =
 };
 
 /**
- * Every course, unpublished and all, as `{ id, title }` — the options behind
- * the student listing's course filter. Deliberately not `GET /api/courses`,
+ * Every course, unpublished and all, as `{ id, title, academicLevel }` — the
+ * options behind the course filters and the quiz builder's subject picker,
+ * which narrows them by track. Deliberately not `GET /api/courses`,
  * which narrows to what the *caller* may study and hides drafts.
  */
 export const listCourseOptions = async (req: Request, res: Response): Promise<void> => {
@@ -283,7 +284,7 @@ export const listCourseOptions = async (req: Request, res: Response): Promise<vo
     const courses = await prisma.course.findMany({
       where: { deletedAt: null },
       orderBy: { title: 'asc' },
-      select: { id: true, title: true },
+      select: { id: true, title: true, academicLevel: true },
     });
 
     res.status(200).json({ success: true, data: courses });
