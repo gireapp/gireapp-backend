@@ -1,12 +1,10 @@
 import { Request, Response } from 'express';
 import {
-  createCourseSchema,
   studentListQuerySchema,
   type StudentListItem,
   type StudentStatus,
 } from '@gireapp/shared';
 import { prisma } from '../services/prisma';
-import { sanitizeObject, detectThreatsInBody } from '../utils/sanitize';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 import {
@@ -18,59 +16,6 @@ import {
   resolveAvatarUrl,
 } from '../services/storage';
 import type { Prisma } from '@prisma/client';
-
-export const createCourse = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const threats = detectThreatsInBody(req.body);
-    if (threats.length > 0) {
-      logger.security('Course creation blocked — threat detected', {
-        threats,
-        userId: (req as AuthenticatedRequest).user?.userId,
-        ip: req.ip,
-      });
-      res.status(400).json({ error: 'Request blocked due to suspicious input.' });
-      return;
-    }
-
-    const result = createCourseSchema.safeParse(sanitizeObject(req.body));
-    if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed.',
-        errors: result.error.flatten().fieldErrors,
-      });
-      return;
-    }
-
-    const { modules, ...course } = result.data;
-    const createdById = (req as AuthenticatedRequest).user.userId;
-
-    // One transaction: a course must never land without its modules and lessons.
-    const created = await prisma.course.create({
-      data: {
-        ...course,
-        createdById,
-        modules: {
-          create: modules.map((module) => ({
-            title: module.title,
-            order: module.order,
-            lessons: { create: module.lessons },
-          })),
-        },
-      },
-      select: { id: true, title: true, published: true },
-    });
-
-    logger.info('Course created', { courseId: created.id, createdById });
-
-    res.status(201).json({ success: true, data: { courseId: created.id } });
-  } catch (error) {
-    logger.error('Create course error', {
-      errorMessage: (error as Error).message,
-      userId: (req as AuthenticatedRequest).user?.userId,
-    });
-    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
-  }
-};
 
 export const getUploadUrl = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -266,30 +211,6 @@ export const listStudents = async (req: Request, res: Response): Promise<void> =
     });
   } catch (error) {
     logger.error('List students error', {
-      errorMessage: (error as Error).message,
-      userId: (req as AuthenticatedRequest).user?.userId,
-    });
-    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
-  }
-};
-
-/**
- * Every course, unpublished and all, as `{ id, title, academicLevel }` — the
- * options behind the course filters and the quiz builder's subject picker,
- * which narrows them by track. Deliberately not `GET /api/courses`,
- * which narrows to what the *caller* may study and hides drafts.
- */
-export const listCourseOptions = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const courses = await prisma.course.findMany({
-      where: { deletedAt: null },
-      orderBy: { title: 'asc' },
-      select: { id: true, title: true, academicLevel: true },
-    });
-
-    res.status(200).json({ success: true, data: courses });
-  } catch (error) {
-    logger.error('List course options error', {
       errorMessage: (error as Error).message,
       userId: (req as AuthenticatedRequest).user?.userId,
     });

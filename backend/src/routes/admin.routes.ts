@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import {
-  createCourse,
   getUploadUrl,
   attachLessonMedia,
   listStudents,
-  listCourseOptions,
 } from '../controllers/admin.controller';
+import {
+  listCourses,
+  getCourseForEditing,
+  createCourse,
+  updateCourse,
+} from '../controllers/admin-course.controller';
 import { getAdminOverview } from '../controllers/admin-overview.controller';
 import { getAdminAnalytics } from '../controllers/admin-analytics.controller';
 import {
@@ -27,9 +31,11 @@ router.get('/overview', getAdminOverview);
 // /api/admin/analytics?rangeDays=&academicLevel=&courseId=&groupBy=
 router.get('/analytics', getAdminAnalytics);
 
-// /api/admin/courses
+// /api/admin/courses — every course; `canEdit` marks the caller's own
+router.get('/courses', listCourses);
 router.post('/courses', createCourse);
-router.get('/courses', listCourseOptions);
+router.get('/courses/:courseId', getCourseForEditing);
+router.put('/courses/:courseId', updateCourse);
 
 // /api/admin/students?search=&courseId=&academicLevel=&status=&page=&limit=
 router.get('/students', listStudents);
