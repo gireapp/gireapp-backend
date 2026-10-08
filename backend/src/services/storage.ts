@@ -158,22 +158,28 @@ function storageClient(): S3Client {
   return client;
 }
 
+/**
+ * The returned `contentType` is the one baked into the signature. The browser
+ * must send exactly this header, so it is handed back rather than leaving the
+ * client to guess — browsers disagree about types such as `.mov`.
+ */
 export async function createUploadUrl(
   filename: string
-): Promise<{ uploadUrl: string; key: string; expiresInSeconds: number }> {
+): Promise<{ uploadUrl: string; key: string; contentType: string; expiresInSeconds: number }> {
   const key = buildObjectKey(filename);
+  const contentType = contentTypeFor(filename) ?? 'application/octet-stream';
 
   const uploadUrl = await getSignedUrl(
     storageClient(),
     new PutObjectCommand({
       Bucket: process.env.S3_BUCKET as string,
       Key: key,
-      ContentType: contentTypeFor(filename),
+      ContentType: contentType,
     }),
     { expiresIn: UPLOAD_URL_TTL_SECONDS }
   );
 
-  return { uploadUrl, key, expiresInSeconds: UPLOAD_URL_TTL_SECONDS };
+  return { uploadUrl, key, contentType, expiresInSeconds: UPLOAD_URL_TTL_SECONDS };
 }
 
 /**
