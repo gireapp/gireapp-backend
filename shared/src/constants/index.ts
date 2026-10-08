@@ -69,6 +69,8 @@ export const API_PATHS = {
   },
   ADMIN: {
     COURSES: '/api/admin/courses',
+    COURSE: (courseId: string) => `/api/admin/courses/${courseId}`,
+    UPLOAD_URL: '/api/admin/upload-url',
     USERS: '/api/admin/users',
     STUDENTS: '/api/admin/students',
     OVERVIEW: '/api/admin/overview',

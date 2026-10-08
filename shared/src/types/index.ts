@@ -511,3 +511,60 @@ export interface AdminQuizSummary {
   course: { id: string; title: string; academicLevel: AcademicLevel };
   updatedAt: string;
 }
+
+// ── Admin: Course Builder ──
+
+export interface AdminCourseLesson {
+  id: string;
+  title: string;
+  contentType: ContentType;
+  content: string | null;
+  /** An uploaded object key or an existing link — never a signed URL. */
+  mediaUrl: string | null;
+  estimatedMinutes: number;
+  /** Learners have completed it, so it can be edited but not removed. */
+  hasProgress: boolean;
+}
+
+export interface AdminCourseModule {
+  id: string;
+  title: string;
+  lessons: AdminCourseLesson[];
+}
+
+/** A course as the builder edits it. */
+export interface AdminCourse {
+  id: string;
+  title: string;
+  description: string;
+  academicLevel: AcademicLevel;
+  department: string;
+  published: boolean;
+  modules: AdminCourseModule[];
+  enrolmentCount: number;
+  updatedAt: string;
+}
+
+/** A course in the admin list, and the options behind course filters. */
+export interface AdminCourseSummary {
+  id: string;
+  title: string;
+  academicLevel: AcademicLevel;
+  department: string;
+  published: boolean;
+  moduleCount: number;
+  lessonCount: number;
+  quizCount: number;
+  enrolmentCount: number;
+  /** Tutors may only edit courses they wrote; admins may edit any. */
+  canEdit: boolean;
+  updatedAt: string;
+}
+
+/** Where to PUT a lesson file, and the key to save on the lesson afterwards. */
+export interface LessonUploadTicket {
+  uploadUrl: string;
+  key: string;
+  /** Send exactly this as the PUT's Content-Type; it is part of the signature. */
+  contentType: string;
+}

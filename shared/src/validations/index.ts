@@ -12,6 +12,7 @@ import {
   ANALYTICS_RANGE_DAYS,
   ANALYTICS_GROUPINGS,
   type AnalyticsRangeDays,
+  CONTENT_TYPES,
   QUIZ_DIFFICULTIES,
   QUESTION_POINT_OPTIONS,
   QUIZ_TIME_LIMIT_OPTIONS,
@@ -258,40 +259,127 @@ export type OnboardingInput = z.infer<typeof onboardingSchema>;
 
 // ── Course Schemas ──
 
-export const createCourseSchema = z.object({
-  title: z
-    .string()
-    .min(3, 'Title must be at least 3 characters')
-    .max(200, 'Title must be under 200 characters')
-    .trim(),
-  description: z
-    .string()
-    .min(10, 'Description must be at least 10 characters')
-    .max(2000, 'Description must be under 2000 characters')
-    .trim(),
-  academicLevel: z.enum(ACADEMIC_LEVELS),
-  department: z.string().min(1, 'Department is required'),
-  thumbnailUrl: z.string().url().optional().nullable(),
-  published: z.boolean().default(false),
-  modules: z.array(
-    z.object({
-      title: z.string().min(1, 'Module title is required').max(200).trim(),
-      order: z.number().int().min(0),
-      lessons: z.array(
-        z.object({
-          title: z.string().min(1, 'Lesson title is required').max(200).trim(),
-          contentType: z.enum(['TEXT', 'PDF', 'MARKDOWN', 'VIDEO']),
-          content: z.string().optional().nullable(),
-          mediaUrl: z.string().url().optional().nullable(),
-          order: z.number().int().min(0),
-          estimatedMinutes: z.number().int().min(1).max(300).default(10),
-        })
-      ).min(1, 'Each module must have at least one lesson'),
-    })
-  ).min(1, 'Course must have at least one module'),
+const COURSE_TITLE_MIN = 3;
+const COURSE_TITLE_MAX = 200;
+const COURSE_DESCRIPTION_MIN = 10;
+const COURSE_DESCRIPTION_MAX = 2000;
+const LESSON_CONTENT_MAX = 100_000;
+const LESSON_MINUTES_MAX = 300;
+const MAX_MODULES = 50;
+const MAX_LESSONS_PER_MODULE = 100;
+
+/** Lesson types whose body is written in the builder rather than uploaded. */
+export const WRITTEN_CONTENT_TYPES = ['TEXT', 'MARKDOWN'] as const;
+
+export function isWrittenContentType(type: string): boolean {
+  return (WRITTEN_CONTENT_TYPES as readonly string[]).includes(type);
+}
+
+/*
+ * Not `.cuid()`: some seeded lessons have hand-written ids such as
+ * "lesson-text-fixture", and a course must always re-save unchanged. An id is
+ * only ever matched against the course's own rows on the server, which is the
+ * check that matters.
+ */
+const existingRowId = z.string().min(1).max(64);
+
+const courseLessonSchema = z.object({
+  /** Present for a lesson that already exists; it keeps learners' progress. */
+  id: existingRowId.optional(),
+  title: z.string().trim().max(200, 'Lesson title must be under 200 characters'),
+  contentType: z.enum(CONTENT_TYPES),
+  content: z.string().max(LESSON_CONTENT_MAX, 'Lesson text is too long').optional().nullable(),
+  /** An uploaded object key, or a lesson's existing link left unchanged. */
+  mediaUrl: z.string().max(500).optional().nullable(),
+  estimatedMinutes: z.number().int().min(1, 'At least 1 minute').max(LESSON_MINUTES_MAX),
 });
 
-export type CreateCourseInput = z.infer<typeof createCourseSchema>;
+const courseModuleSchema = z.object({
+  id: existingRowId.optional(),
+  title: z.string().trim().max(200, 'Module title must be under 200 characters'),
+  lessons: z
+    .array(courseLessonSchema)
+    .max(MAX_LESSONS_PER_MODULE, `A module can have at most ${MAX_LESSONS_PER_MODULE} lessons`),
+});
+
+/**
+ * One schema for creating and editing a course, as a draft or published.
+ *
+ * A draft may be incomplete. Publishing puts the course in front of learners,
+ * so only then must every module have a title and a lesson, and every lesson a
+ * title and its content — written text, or an uploaded file.
+ *
+ * Module and lesson order is array order. `department` must belong to the
+ * chosen track: learners only see courses matching both, so a mismatch would
+ * publish a course nobody can find.
+ */
+export const saveCourseSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(COURSE_TITLE_MIN, `Title must be at least ${COURSE_TITLE_MIN} characters`)
+      .max(COURSE_TITLE_MAX, `Title must be under ${COURSE_TITLE_MAX} characters`),
+    description: z
+      .string()
+      .trim()
+      .max(COURSE_DESCRIPTION_MAX, `Description must be under ${COURSE_DESCRIPTION_MAX} characters`),
+    academicLevel: z.enum(ACADEMIC_LEVELS, { errorMap: () => ({ message: 'Choose a track' }) }),
+    department: z.string().trim().min(1, 'Choose a department'),
+    publish: z.boolean(),
+    modules: z.array(courseModuleSchema).max(MAX_MODULES, `A course can have at most ${MAX_MODULES} modules`),
+  })
+  .superRefine((course, ctx) => {
+    if (!DEPARTMENTS[course.academicLevel].includes(course.department)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['department'],
+        message: 'Choose a department from this track',
+      });
+    }
+
+    if (!course.publish) return;
+
+    if (course.description.length < COURSE_DESCRIPTION_MIN) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['description'],
+        message: `Add a description of at least ${COURSE_DESCRIPTION_MIN} characters before publishing`,
+      });
+    }
+    if (course.modules.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['modules'], message: 'Add at least one module before publishing' });
+    }
+
+    course.modules.forEach((module, moduleIndex) => {
+      const where = `Module ${moduleIndex + 1}`;
+      if (!module.title) {
+        ctx.addIssue({ code: 'custom', path: ['modules', moduleIndex, 'title'], message: `${where} needs a title` });
+      }
+      if (module.lessons.length === 0) {
+        ctx.addIssue({ code: 'custom', path: ['modules', moduleIndex, 'lessons'], message: `${where} needs at least one lesson` });
+      }
+
+      module.lessons.forEach((lesson, lessonIndex) => {
+        const path = ['modules', moduleIndex, 'lessons', lessonIndex];
+        const label = `${where}, lesson ${lessonIndex + 1}`;
+        if (!lesson.title) {
+          ctx.addIssue({ code: 'custom', path: [...path, 'title'], message: `${label} needs a title` });
+        }
+        if (isWrittenContentType(lesson.contentType)) {
+          if (!lesson.content?.trim()) {
+            ctx.addIssue({ code: 'custom', path: [...path, 'content'], message: `${label} has no text` });
+          }
+        } else if (!lesson.mediaUrl) {
+          ctx.addIssue({ code: 'custom', path: [...path, 'mediaUrl'], message: `${label} needs a file` });
+        }
+      });
+    });
+  });
+
+export type SaveCourseInput = z.infer<typeof saveCourseSchema>;
+/** Unvalidated client state; see SaveQuizRequest for why both types exist. */
+export type SaveCourseRequest = z.input<typeof saveCourseSchema>;
 
 // ── Quiz Schemas ──
 
