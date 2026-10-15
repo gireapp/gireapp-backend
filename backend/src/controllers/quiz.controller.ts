@@ -12,22 +12,23 @@ import { prisma } from '../services/prisma';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 import { issueQuizTicket, verifyQuizTicket } from '../utils/quiz-ticket';
+import { coursesOpenTo, type CourseViewer } from '../utils/course-access';
 import { badgeForScore, gradeAttempt, pointsForAttempt } from '../services/quiz-grading';
 
 const MS_PER_SECOND = 1000;
 const UNIQUE_VIOLATION = 'P2002';
 
 /**
- * A quiz a learner may see: published, with at least one question, in a
- * published course that has not been deleted. A draft or an empty quiz is
- * indistinguishable from one that does not exist.
+ * A quiz a viewer may see: published, with at least one question, in a
+ * published, undeleted course the viewer can open. A draft, an empty quiz or
+ * another track's quiz is indistinguishable from one that does not exist.
  */
-function visibleQuiz(quizId: string): Prisma.QuizWhereInput {
+function visibleQuiz(quizId: string, viewer: CourseViewer): Prisma.QuizWhereInput {
   return {
     id: quizId,
     published: true,
     questions: { some: {} },
-    course: { published: true, deletedAt: null },
+    course: { published: true, deletedAt: null, AND: [coursesOpenTo(viewer)] },
   };
 }
 
@@ -74,10 +75,11 @@ function fail(res: Response, req: Request, message: string, error: unknown): voi
 export const getQuizIntro = async (req: Request, res: Response): Promise<void> => {
   try {
     const { quizId } = req.params as { quizId: string };
-    const userId = (req as AuthenticatedRequest).user.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer.userId;
 
     const quiz = await prisma.quiz.findFirst({
-      where: visibleQuiz(quizId),
+      where: visibleQuiz(quizId, viewer),
       select: {
         id: true,
         title: true,
@@ -121,10 +123,11 @@ export const getQuizIntro = async (req: Request, res: Response): Promise<void> =
 export const startQuiz = async (req: Request, res: Response): Promise<void> => {
   try {
     const { quizId } = req.params as { quizId: string };
-    const userId = (req as AuthenticatedRequest).user.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer.userId;
 
     const quiz = await prisma.quiz.findFirst({
-      where: visibleQuiz(quizId),
+      where: visibleQuiz(quizId, viewer),
       select: { id: true, courseId: true, timeLimitMin: true, questions: ORDERED_QUESTIONS },
     });
 
@@ -242,7 +245,8 @@ async function recordAttempt(args: {
 export const submitQuiz = async (req: Request, res: Response): Promise<void> => {
   try {
     const { quizId } = req.params as { quizId: string };
-    const userId = (req as AuthenticatedRequest).user.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer.userId;
 
     const body = submitQuizSchema.safeParse(req.body);
     if (!body.success) {
