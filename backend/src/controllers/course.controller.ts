@@ -4,6 +4,12 @@ import { historyFrom } from './quiz.controller';
 import { logger } from '../utils/logger';
 import { createDownloadUrl, isObjectKey, isStorageConfigured } from '../services/storage';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import {
+  coursesInScopeFor,
+  coursesOpenTo,
+  coursesWithLessonsReadableBy,
+  isStaffViewer,
+} from '../utils/course-access';
 import type {
   BadgeType,
   AcademicLevel,
@@ -15,28 +21,29 @@ import { ACADEMIC_LEVELS } from '@gireapp/shared';
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId, lessonId } = req.params as { courseId: string; lessonId: string };
-    const userId = (req as AuthenticatedRequest).user?.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer?.userId;
 
     if (!userId || !courseId || !lessonId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
 
-    // Verify enrolment
-    const enrolment = await prisma.enrolment.findUnique({
-      where: { userId_courseId: { userId, courseId } },
+    const course = await prisma.course.findFirst({
+      where: {
+        id: courseId,
+        published: true,
+        deletedAt: null,
+        AND: [coursesWithLessonsReadableBy(viewer)],
+      },
       include: {
-        course: {
+        modules: {
+          orderBy: { order: 'asc' },
           include: {
-            modules: {
+            lessons: {
               orderBy: { order: 'asc' },
               include: {
-                lessons: {
-                  orderBy: { order: 'asc' },
-                  include: {
-                    progress: { where: { userId } },
-                  },
-                },
+                progress: { where: { userId } },
               },
             },
           },
@@ -44,12 +51,12 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
       },
     });
 
-    if (!enrolment || !enrolment.course.published) {
+    if (!course) {
       res.status(403).json({ error: 'Not enrolled or course not published' });
       return;
     }
 
-    const allLessons = enrolment.course.modules.flatMap((m) => m.lessons);
+    const allLessons = course.modules.flatMap((m) => m.lessons);
     const currentIndex = allLessons.findIndex((l) => l.id === lessonId);
 
     if (currentIndex === -1) {
@@ -64,7 +71,7 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
     }
     const nextLesson = allLessons[currentIndex + 1] || null;
     const prevLesson = allLessons[currentIndex - 1] || null;
-    const currentModule = enrolment.course.modules.find((m) => m.id === currentLesson.moduleId) || null;
+    const currentModule = course.modules.find((m) => m.id === currentLesson.moduleId) || null;
 
     // Stored objects are private, so the player gets a short-lived signed URL rather
     // than a key it could not fetch. Legacy paths and absolute URLs pass through.
@@ -214,15 +221,17 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
 export const enrolInCourse = async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId } = req.params as { courseId: string };
-    const userId = (req as AuthenticatedRequest).user?.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer?.userId;
 
     if (!userId || !courseId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
 
+    // Another track's course answers 404, not 403, so its id cannot be probed.
     const course = await prisma.course.findFirst({
-      where: { id: courseId, published: true, deletedAt: null },
+      where: { id: courseId, published: true, deletedAt: null, AND: [coursesInScopeFor(viewer)] },
       select: { id: true },
     });
 
@@ -254,9 +263,10 @@ export const enrolInCourse = async (req: Request, res: Response): Promise<void> 
 };
 
 /**
- * BE-LEARN-002. `level` and `department` are optional query params; when absent
- * they fall back to the caller's own profile, so the dashboard can ask for
- * "courses for me" without restating what the token already says.
+ * BE-LEARN-002. A learner gets the courses open to them: their own track and
+ * department, plus any they joined before changing either. `level` and
+ * `department` narrow the list for staff only; a learner cannot use them to
+ * browse another track.
  */
 export const listCourses = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -268,12 +278,11 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const levelParam = typeof req.query.level === 'string' ? req.query.level : undefined;
-    const departmentParam =
-      typeof req.query.department === 'string' ? req.query.department : undefined;
-
-    const level = levelParam ?? payload.academicLevel ?? undefined;
-    const department = departmentParam ?? payload.department ?? undefined;
+    const staffFilters = isStaffViewer(payload);
+    const level =
+      staffFilters && typeof req.query.level === 'string' ? req.query.level : undefined;
+    const department =
+      staffFilters && typeof req.query.department === 'string' ? req.query.department : undefined;
 
     if (level && !ACADEMIC_LEVELS.includes(level as AcademicLevel)) {
       res.status(422).json({
@@ -287,6 +296,7 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
       where: {
         published: true,
         deletedAt: null,
+        AND: [coursesOpenTo(payload)],
         ...(level ? { academicLevel: level as AcademicLevel } : {}),
         ...(department ? { department } : {}),
       },
@@ -340,7 +350,8 @@ export const listCourses = async (req: Request, res: Response): Promise<void> =>
 export const getCourse = async (req: Request, res: Response): Promise<void> => {
   try {
     const { courseId } = req.params as { courseId: string };
-    const userId = (req as AuthenticatedRequest).user?.userId;
+    const viewer = (req as AuthenticatedRequest).user;
+    const userId = viewer?.userId;
 
     if (!userId || !courseId) {
       res.status(401).json({ error: 'Unauthorized' });
@@ -348,7 +359,7 @@ export const getCourse = async (req: Request, res: Response): Promise<void> => {
     }
 
     const course = await prisma.course.findFirst({
-      where: { id: courseId, published: true, deletedAt: null },
+      where: { id: courseId, published: true, deletedAt: null, AND: [coursesOpenTo(viewer)] },
       select: {
         id: true,
         title: true,
