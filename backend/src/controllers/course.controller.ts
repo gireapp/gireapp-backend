@@ -66,7 +66,7 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
     const prevLesson = allLessons[currentIndex - 1] || null;
     const currentModule = enrolment.course.modules.find((m) => m.id === currentLesson.moduleId) || null;
 
-    // R2 objects are private, so the player gets a short-lived signed URL rather
+    // Stored objects are private, so the player gets a short-lived signed URL rather
     // than a key it could not fetch. Legacy paths and absolute URLs pass through.
     let mediaUrl = currentLesson.mediaUrl;
     if (mediaUrl && isObjectKey(mediaUrl) && isStorageConfigured()) {
