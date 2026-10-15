@@ -39,7 +39,7 @@ export const getUploadUrl = async (req: Request, res: Response): Promise<void> =
     // Missing config is an environment problem, not a server fault — 503 says
     // "not wired up here" rather than burying it in a generic 500.
     if (!isStorageConfigured()) {
-      logger.error('Upload URL requested but R2 is not configured');
+      logger.error('Upload URL requested but object storage is not configured (S3_* variables)');
       res.status(503).json({ error: 'File uploads are not configured on this environment.' });
       return;
     }

@@ -2,6 +2,7 @@
   "name": "gireapp-backend",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "GIREAPP – Backend API",
   "scripts": {
     "dev": "tsx watch src/server.ts",

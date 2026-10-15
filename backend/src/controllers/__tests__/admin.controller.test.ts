@@ -63,7 +63,7 @@ describe('buildObjectKey', () => {
 });
 
 describe('isObjectKey', () => {
-  it('treats an R2 key as needing a signed URL', () => {
+  it('treats a storage key as needing a signed URL', () => {
     expect(isObjectKey('lessons/2f1a-4c.pdf')).toBe(true);
   });
 

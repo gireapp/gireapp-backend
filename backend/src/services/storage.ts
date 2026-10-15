@@ -119,7 +119,7 @@ export function isMintedAvatarKey(key: string): boolean {
 }
 
 /**
- * Legacy rows and seeded fixtures hold a ready-made path or absolute URL; R2
+ * Legacy rows and seeded fixtures hold a ready-made path or absolute URL;
  * uploads hold a bare object key. Only the latter needs signing.
  */
 export function isObjectKey(mediaUrl: string): boolean {
