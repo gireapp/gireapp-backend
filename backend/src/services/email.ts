@@ -5,6 +5,7 @@
 
 import { Resend } from 'resend';
 import { logger } from '../utils/logger';
+import { FRONTEND_ORIGIN } from '../config/origins';
 
 let resendClient: Resend | null = null;
 
@@ -42,9 +43,9 @@ function getResend(): Resend {
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'GIREAPP <noreply@gireapp.com>';
-// Links in emails must point at the deployed frontend
-const APP_URL =
-  process.env.FRONTEND_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+// Links in emails must point at the deployed frontend — one origin, validated
+// in config/env.ts, so a CORS allowlist can never leak into a link.
+const APP_URL = FRONTEND_ORIGIN;
 
 /** Escape user-controlled values before interpolating them into email HTML (BE-SEC-M2) */
 function escapeHtml(input: string): string {
@@ -370,9 +371,7 @@ export async function sendEmailChangeNotice(
 }
 
 /**
- * A support request from inside the account. Kept separate from the mentorship
- * form: that one reaches counselling staff, this one reaches support, and a
- * ticket landing in the wrong inbox is one nobody answers.
+ * A support request from inside the account.
  *
  * The sender is taken from the account, never from the request body, so a
  * request cannot be made to look as though it came from someone else.
@@ -404,34 +403,6 @@ export async function sendSupportRequestEmail(
         <p style="color: #94A3B8; font-size: 12px; margin-top: 24px;">
           Reply to this learner at ${escapeHtml(fromEmail)}.
         </p>
-      </div>
-    `,
-  });
-}
-
-/** Send counselling/mentorship request notification */
-export async function sendContactFormEmail(
-  fromName: string,
-  fromEmail: string,
-  subject: string,
-  message: string
-): Promise<void> {
-  const counsellingEmail = process.env.COUNSELLING_EMAIL ?? 'counselling@gireapp.com';
-
-  return sendEmail({
-    to: counsellingEmail,
-    subject: `[Mentorship Request] ${subject}`,
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-        <h2 style="color: #3730A3; font-size: 20px;">New Mentorship Request</h2>
-        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">From:</td><td style="padding: 8px;">${escapeHtml(fromName)}</td></tr>
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Email:</td><td style="padding: 8px;">${escapeHtml(fromEmail)}</td></tr>
-          <tr><td style="padding: 8px; color: #64748B; font-weight: 600;">Subject:</td><td style="padding: 8px;">${escapeHtml(subject)}</td></tr>
-        </table>
-        <div style="background: #F1F5F9; padding: 16px; border-radius: 8px; margin-top: 16px;">
-          <p style="color: #334155; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(message)}</p>
-        </div>
       </div>
     `,
   });

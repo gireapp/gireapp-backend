@@ -28,9 +28,7 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
-      - key: UPSTASH_REDIS_REST_URL
-        sync: false
-      - key: UPSTASH_REDIS_REST_TOKEN
+      - key: CLIENT_IP_SECRET
         sync: false
       - key: S3_ENDPOINT
         sync: false

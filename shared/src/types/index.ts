@@ -170,6 +170,8 @@ export interface CourseDetail {
   thumbnailUrl: string | null;
   published: boolean;
   modules: ModuleDetail[];
+  /** Published quizzes with at least one question. */
+  quizzes: CourseQuizSummary[];
   isEnrolled: boolean;
   progress: number;
 }
@@ -208,31 +210,361 @@ export interface LessonDetail {
 
 // ── Quiz Types ──
 
-export interface QuizQuestion {
+/** A question as a learner sees it while taking a quiz — no correct answers. */
+export interface LearnerQuizQuestion {
   id: string;
   text: string;
-  choices: QuizChoice[];
-  order: number;
+  points: number;
+  choices: { id: string; text: string }[];
 }
 
-export interface QuizChoice {
+/** The learner's history with one quiz. */
+export interface LearnerQuizHistory {
+  attemptCount: number;
+  /** Null until the first attempt. */
+  bestScore: number | null;
+  passed: boolean;
+}
+
+/**
+ * What a learner sees before starting: enough to decide whether to begin, but
+ * no questions — those arrive with the start ticket, when the clock starts.
+ */
+export interface LearnerQuizIntro {
   id: string;
-  text: string;
-  order: number;
+  title: string;
+  description: string | null;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  passingScore: number;
+  questionCount: number;
+  totalPoints: number;
+  course: { id: string; title: string };
+  isEnrolled: boolean;
+  history: LearnerQuizHistory;
 }
 
-export interface QuizSubmission {
-  quizId: string;
-  answers: Record<string, string>; // { questionId: choiceId }
-  startedAt: string; // ISO timestamp
+/** Issued when a learner presses Start. */
+export interface StartedQuiz {
+  /**
+   * Signed by the server and carrying its own start time, so the time limit is
+   * enforced against the server's clock rather than one the client reports.
+   */
+  ticket: string;
+  /** ISO timestamp the client counts down to. */
+  expiresAt: string;
+  questions: LearnerQuizQuestion[];
+}
+
+export interface QuizReviewItem {
+  questionId: string;
+  text: string;
+  points: number;
+  choices: { id: string; text: string }[];
+  /** Null when the question was left unanswered. */
+  chosenChoiceId: string | null;
+  correctChoiceId: string;
+  isCorrect: boolean;
+  explanation: string | null;
 }
 
 export interface QuizResult {
+  attemptId: string;
+  /** Whole percent, weighted by each question's points. */
   score: number;
+  passingScore: number;
+  passed: boolean;
   totalRight: number;
   totalWrong: number;
-  passed: boolean;
   pointsEarned: number;
+  /** A badge this attempt newly unlocked, if any. */
   badgeEarned: BadgeType | null;
   timeTakenSec: number;
+  review: QuizReviewItem[];
+}
+
+/** A published quiz listed on its course page. */
+export interface CourseQuizSummary {
+  id: string;
+  title: string;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  questionCount: number;
+  history: LearnerQuizHistory;
+}
+
+// ── Admin: Student Listing ──
+
+/**
+ * Lifecycle of a student account as the admin listing presents it. Derived on
+ * read from `deletedAt` / `emailVerified` rather than stored, so it can never
+ * disagree with the columns it is derived from.
+ */
+export const STUDENT_STATUSES = ['ACTIVE', 'PENDING', 'INACTIVE'] as const;
+export type StudentStatus = (typeof STUDENT_STATUSES)[number];
+
+export interface StudentListItem {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  academicLevel: AcademicLevel | null;
+  status: StudentStatus;
+  /**
+   * The listing shows one course per student — the most recently active
+   * enrolment. Null when the student has not enrolled in anything yet, which
+   * the UI omits rather than filling with a placeholder.
+   */
+  course: { id: string; title: string } | null;
+  /** Percent complete (0-100) of `course`; null whenever `course` is null. */
+  progress: number | null;
+}
+
+// ── Admin: Dashboard Overview ──
+
+/** A headline count with the change over the trailing seven days. */
+export interface AdminTotal {
+  value: number;
+  addedThisWeek: number;
+}
+
+/** One day of the 30-day growth chart. `date` is an ISO calendar date. */
+export interface AdminGrowthPoint {
+  date: string;
+  registered: number;
+  active: number;
+}
+
+export interface AdminTrackShare {
+  academicLevel: AcademicLevel;
+  count: number;
+  /** Whole percent of students who have picked a track (untracked excluded). */
+  percentage: number;
+}
+
+/**
+ * Activity kinds the schema can actually attest to. The design also shows
+ * "Mentor assigned", which has no model behind it and is therefore absent
+ * rather than faked.
+ */
+export const ADMIN_ACTIVITY_TYPES = ['STUDENT_REGISTERED', 'QUIZ_CREATED'] as const;
+export type AdminActivityType = (typeof ADMIN_ACTIVITY_TYPES)[number];
+
+export interface AdminActivity {
+  id: string;
+  type: AdminActivityType;
+  /** The line under the heading, e.g. "Ola Aina joined the Tertiary track". */
+  detail: string;
+  /** ISO timestamp; the client renders it as "2 mins ago". */
+  at: string;
+}
+
+export interface AdminSubjectEnrolments {
+  subject: string;
+  enrolments: number;
+}
+
+export interface AdminOverview {
+  students: AdminTotal;
+  courses: AdminTotal;
+  quizzes: AdminTotal;
+  growth: AdminGrowthPoint[];
+  trackDistribution: AdminTrackShare[];
+  recentActivity: AdminActivity[];
+  topSubjects: AdminSubjectEnrolments[];
+  /** Whole percent of enrolments finished; null when nobody has enrolled. */
+  courseCompletionRate: number | null;
+}
+
+// ── Admin: Analytics ──
+
+/** Date-range choices on the analytics filter bar, in days. */
+export const ANALYTICS_RANGE_DAYS = [7, 30, 90] as const;
+export type AnalyticsRangeDays = (typeof ANALYTICS_RANGE_DAYS)[number];
+
+/** How the registration chart buckets its points. */
+export const ANALYTICS_GROUPINGS = ['DAILY', 'WEEKLY'] as const;
+export type AnalyticsGrouping = (typeof ANALYTICS_GROUPINGS)[number];
+
+/** How many weeks after sign-up the retention chart follows a cohort. */
+export const RETENTION_WEEKS = 5;
+
+export interface AdminRegistrationPoint {
+  /** First day of the bucket, as an ISO calendar date. */
+  date: string;
+  byTrack: Record<AcademicLevel, number>;
+}
+
+/**
+ * Share of quiz attempts that met the quiz's pass mark. The design calls this
+ * "completion", but an attempt is only recorded once it is submitted — there is
+ * no row for a quiz started and abandoned — so completion would always be 100%.
+ */
+export interface AdminSubjectPassRate {
+  subject: string;
+  attempts: number;
+  /** Whole percent. */
+  passRate: number;
+}
+
+/**
+ * Of the students who signed up in the period, the share active during their
+ * Nth week after signing up. `rate` is null until at least one of them has been
+ * signed up long enough for that week to have finished.
+ */
+export interface AdminRetentionWeek {
+  week: number;
+  /** Students whose Nth week has fully elapsed. */
+  eligible: number;
+  /** Whole percent of `eligible`; null when nobody is eligible yet. */
+  rate: number | null;
+}
+
+export interface AdminTopStudent {
+  id: string;
+  name: string;
+  image: string | null;
+  academicLevel: AcademicLevel | null;
+  points: number;
+  quizzesTaken: number;
+}
+
+export interface AdminAnalytics {
+  period: {
+    /** ISO timestamps bounding the date-range filter. */
+    from: string;
+    to: string;
+    rangeDays: AnalyticsRangeDays;
+    groupBy: AnalyticsGrouping;
+  };
+  students: AdminTotal;
+  courses: AdminTotal;
+  quizzes: AdminTotal;
+  registrations: AdminRegistrationPoint[];
+  trackDistribution: AdminTrackShare[];
+  quizPassRates: AdminSubjectPassRate[];
+  retention: AdminRetentionWeek[];
+  topStudents: AdminTopStudent[];
+  topSubjects: AdminSubjectEnrolments[];
+  courseCompletionRate: number | null;
+}
+
+// ── Quiz Builder ──
+
+/** Mirrors the QuizDifficulty enum in prisma/schema.prisma. */
+export const QUIZ_DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
+export type QuizDifficulty = (typeof QUIZ_DIFFICULTIES)[number];
+
+/** The builder offers fixed choices rather than free numbers, as the design does. */
+export const QUESTION_POINT_OPTIONS = [1, 2, 5, 10] as const;
+export type QuestionPoints = (typeof QUESTION_POINT_OPTIONS)[number];
+
+export const QUIZ_TIME_LIMIT_OPTIONS = [10, 15, 20, 30, 45, 60, 90] as const;
+export type QuizTimeLimit = (typeof QUIZ_TIME_LIMIT_OPTIONS)[number];
+
+export const QUIZ_PASS_MARK_OPTIONS = [50, 60, 70, 80, 90] as const;
+export type QuizPassMark = (typeof QUIZ_PASS_MARK_OPTIONS)[number];
+
+export const MIN_CHOICES = 2;
+export const MAX_CHOICES = 6;
+
+export interface AdminQuizChoice {
+  text: string;
+  isCorrect: boolean;
+}
+
+export interface AdminQuizQuestion {
+  text: string;
+  /** Not editable in the builder; carried through so a save does not erase it. */
+  explanation: string | null;
+  points: number;
+  choices: AdminQuizChoice[];
+}
+
+/** A quiz as the builder edits it — correct answers included, staff only. */
+export interface AdminQuiz {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string | null;
+  difficulty: QuizDifficulty | null;
+  timeLimitMin: number;
+  passingScore: number;
+  published: boolean;
+  questions: AdminQuizQuestion[];
+  /**
+   * Once learners have sat a quiz its questions are frozen: a stored attempt
+   * maps question ids to the choice picked, and replacing the questions would
+   * leave every past attempt pointing at nothing.
+   */
+  attemptCount: number;
+  updatedAt: string;
+}
+
+export interface AdminQuizSummary {
+  id: string;
+  title: string;
+  published: boolean;
+  difficulty: QuizDifficulty | null;
+  questionCount: number;
+  attemptCount: number;
+  course: { id: string; title: string; academicLevel: AcademicLevel };
+  updatedAt: string;
+}
+
+// ── Admin: Course Builder ──
+
+export interface AdminCourseLesson {
+  id: string;
+  title: string;
+  contentType: ContentType;
+  content: string | null;
+  /** An uploaded object key or an existing link — never a signed URL. */
+  mediaUrl: string | null;
+  estimatedMinutes: number;
+  /** Learners have completed it, so it can be edited but not removed. */
+  hasProgress: boolean;
+}
+
+export interface AdminCourseModule {
+  id: string;
+  title: string;
+  lessons: AdminCourseLesson[];
+}
+
+/** A course as the builder edits it. */
+export interface AdminCourse {
+  id: string;
+  title: string;
+  description: string;
+  academicLevel: AcademicLevel;
+  department: string;
+  published: boolean;
+  modules: AdminCourseModule[];
+  enrolmentCount: number;
+  updatedAt: string;
+}
+
+/** A course in the admin list, and the options behind course filters. */
+export interface AdminCourseSummary {
+  id: string;
+  title: string;
+  academicLevel: AcademicLevel;
+  department: string;
+  published: boolean;
+  moduleCount: number;
+  lessonCount: number;
+  quizCount: number;
+  enrolmentCount: number;
+  /** Tutors may only edit courses they wrote; admins may edit any. */
+  canEdit: boolean;
+  updatedAt: string;
+}
+
+/** Where to PUT a lesson file, and the key to save on the lesson afterwards. */
+export interface LessonUploadTicket {
+  uploadUrl: string;
+  key: string;
+  /** Send exactly this as the PUT's Content-Type; it is part of the signature. */
+  contentType: string;
 }

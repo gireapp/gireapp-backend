@@ -9,7 +9,6 @@ import type {
   NextQuiz,
   SessionUser,
 } from '@gireapp/shared';
-import { POINTS } from '@gireapp/shared';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
 
@@ -22,22 +21,6 @@ const MIN_PEERS_FOR_RANK = 5;
 
 function startOfWeeklyWindow(now = new Date()): Date {
   return new Date(now.getTime() - WEEKLY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-}
-
-/**
- * There is no points ledger — `User.points` is a running total — so the weekly
- * figure is rebuilt from the attempts inside the window using the same award
- * table that granted them.
- */
-export function sumAttemptPoints(
-  attempts: { score: number; quiz: { passingScore: number } }[]
-): number {
-  return attempts.reduce(
-    (total, attempt) =>
-      total +
-      (attempt.score >= attempt.quiz.passingScore ? POINTS.QUIZ_PASS : POINTS.QUIZ_FAIL),
-    0
-  );
 }
 
 /**
@@ -135,9 +118,11 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
           where: { userId },
           _avg: { score: true },
         }),
-        prisma.quizAttempt.findMany({
+        // Summed from what each attempt actually paid out, which is capped
+        // per quiz; recomputing from scores would count every retake.
+        prisma.quizAttempt.aggregate({
           where: { userId, submittedAt: { gte: startOfWeeklyWindow() } },
-          select: { score: true, quiz: { select: { passingScore: true } } },
+          _sum: { pointsEarned: true },
         }),
         // Courses at the learner's level they have NOT joined — the panel is
         // "recommended", so enrolments belong in activeCourses, not here.
@@ -169,6 +154,10 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
               enrolments: { some: { userId } },
             },
             attempts: { none: { userId } },
+            // A draft, or a quiz with nothing in it, is not "next" — the
+            // learner would land on a 404.
+            published: true,
+            questions: { some: {} },
           },
           orderBy: { createdAt: 'asc' },
           select: { id: true, courseId: true, title: true },
@@ -262,7 +251,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       stats: {
         quizzesTaken,
         averageScore: averageScore === null ? null : Math.round(averageScore),
-        weeklyPoints: sumAttemptPoints(weeklyAttempts),
+        weeklyPoints: weeklyAttempts._sum.pointsEarned ?? 0,
         rankPercentile: await calculateRankPercentile(
           userId,
           user.academicLevel,

@@ -11,8 +11,10 @@
     "dev": "npm run dev --workspace=backend",
     "build": "npm run build --workspace=shared && npm run build --workspace=backend",
     "start": "npm run start --workspace=backend",
-    "lint": "npm run lint --workspaces",
     "db:push": "npm run db:push --workspace=backend",
     "db:studio": "npm run db:studio --workspace=backend"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }
