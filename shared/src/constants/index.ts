@@ -80,3 +80,14 @@ export const API_PATHS = {
   },
   HEALTH: '/api/health',
 } as const;
+
+/**
+ * Headers the frontend's server attaches to every backend call. All learner
+ * traffic reaches the backend from the frontend's server, so without these
+ * the backend would rate-limit every learner as one visitor. The secret proves
+ * the IP came from our own server rather than from a client forging it.
+ */
+export const CLIENT_IP_HEADERS = {
+  IP: 'x-gireapp-client-ip',
+  SECRET: 'x-gireapp-client-ip-secret',
+} as const;

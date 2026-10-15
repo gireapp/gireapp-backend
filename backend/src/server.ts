@@ -2,6 +2,7 @@
 // ready before hoisted module imports read process.env
 import "./config/env";
 import { CORS_ORIGINS } from "./config/origins";
+import { CLIENT_IP_SECRET } from "./config/env";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -72,4 +73,7 @@ app.use(globalErrorHandler);
 // ── Start Server ──
 app.listen(PORT, () => {
   logger.info('Server started', { port: PORT, env: process.env.NODE_ENV || 'development' });
+  if (process.env.NODE_ENV === 'production' && !CLIENT_IP_SECRET) {
+    logger.warn('CLIENT_IP_SECRET is unset: every learner shares one rate-limit bucket');
+  }
 });

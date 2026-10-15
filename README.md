@@ -81,6 +81,7 @@ without it.
 | `DATABASE_URL` | Yes | Neon connection string (pooled). |
 | `DIRECT_URL` | Yes | Neon direct connection, used by migrations. |
 | `AUTH_SECRET` | Yes | Signs sessions. **Must be byte-for-byte identical to the frontend's.** The server refuses to start without it outside tests. |
+| `CLIENT_IP_SECRET` | Yes, in production | **Must be identical to the frontend's.** The frontend's server forwards each learner's IP with it, so rate limits apply per learner; without it every learner shares one budget and a handful of sign-ins locks everyone out. Generate with `openssl rand -base64 32`. |
 | `FRONTEND_URL` | Yes | **Exactly one** origin — the live site. It is the base for every link in an email (verification, password reset, guardian consent), so a comma-separated list is rejected at startup. |
 | `CORS_ORIGINS` | No | Extra browser origins allowed by CORS, comma-separated. Defaults to `FRONTEND_URL` alone. |
 | `NODE_ENV` | Yes, in production | Must be `production` there: it sets `Secure` on session cookies and keeps stack traces out of error responses. |
