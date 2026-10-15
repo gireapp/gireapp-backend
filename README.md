@@ -160,3 +160,11 @@ If you find a security issue, please **do not open a public issue**. Report it
 privately through
 [GitHub's private vulnerability reporting](https://github.com/gireapp/gireapp-backend/security/advisories/new),
 and we will respond there.
+
+## License
+
+Copyright (c) 2026 GIREAPP. All rights reserved.
+
+This is proprietary software. The source is visible, but no licence is
+granted to use, copy, modify or distribute it without GIREAPP's written
+permission. See [LICENSE](LICENSE).
