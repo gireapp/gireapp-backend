@@ -27,7 +27,12 @@ vi.mock('../../utils/logger', () => ({ logger: loggerMock }));
 import { getQuizIntro, startQuiz, submitQuiz } from '../quiz.controller';
 import { issueQuizTicket } from '../../utils/quiz-ticket';
 
-const LEARNER = { userId: 'learner-1', role: 'STUDENT' };
+const LEARNER = {
+  userId: 'learner-1',
+  role: 'STUDENT',
+  academicLevel: 'SECONDARY',
+  department: 'Science',
+};
 const Q1 = 'cmquestion000000000000001';
 const RIGHT = 'cmchoice00000000000000001';
 const WRONG = 'cmchoice00000000000000002';
@@ -89,7 +94,7 @@ beforeEach(() => {
 });
 
 describe('getQuizIntro', () => {
-  it('only ever looks for published, non-empty quizzes in live courses', async () => {
+  it('only ever looks for published, non-empty quizzes in live courses the learner can open', async () => {
     prismaMock.quiz.findFirst.mockResolvedValue(null);
 
     const res = await call(getQuizIntro, {});
@@ -99,7 +104,18 @@ describe('getQuizIntro', () => {
       id: 'quiz-1',
       published: true,
       questions: { some: {} },
-      course: { published: true, deletedAt: null },
+      course: {
+        published: true,
+        deletedAt: null,
+        AND: [
+          {
+            OR: [
+              { academicLevel: 'SECONDARY', department: 'Science' },
+              { enrolments: { some: { userId: 'learner-1' } } },
+            ],
+          },
+        ],
+      },
     });
   });
 

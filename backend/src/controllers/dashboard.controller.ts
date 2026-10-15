@@ -11,6 +11,7 @@ import type {
 } from '@gireapp/shared';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { logger } from '../utils/logger';
+import { coursesInScopeFor } from '../utils/course-access';
 
 const RECENT_ACTIVITY_LIMIT = 10;
 const WEEKLY_WINDOW_DAYS = 7;
@@ -124,16 +125,16 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
           where: { userId, submittedAt: { gte: startOfWeeklyWindow() } },
           _sum: { pointsEarned: true },
         }),
-        // Courses at the learner's level they have NOT joined — the panel is
-        // "recommended", so enrolments belong in activeCourses, not here.
+        // Courses in the learner's track and department they have NOT joined —
+        // the panel is "recommended", so enrolments belong in activeCourses.
         prisma.course.findMany({
           where: {
             published: true,
             deletedAt: null,
             enrolments: { none: { userId } },
             // Filter in the query, not after: taking N rows first would let
-            // courses at other levels crowd out the learner's own.
-            ...(payload.academicLevel ? { academicLevel: payload.academicLevel } : {}),
+            // other tracks' courses crowd out the learner's own.
+            AND: [coursesInScopeFor(payload)],
           },
           orderBy: { createdAt: 'desc' },
           take: RECOMMENDED_COURSE_LIMIT,
