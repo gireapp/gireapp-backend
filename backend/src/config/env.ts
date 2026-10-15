@@ -26,3 +26,10 @@ export const JWT_SECRET: string = process.env.AUTH_SECRET || 'vitest-only-secret
 /** JWT issuer/audience claims — reject tokens minted by/for other services */
 export const JWT_ISSUER = 'gireapp-backend';
 export const JWT_AUDIENCE = 'gireapp-frontend';
+
+/**
+ * Shared with the frontend's server, which sends it alongside each learner's
+ * IP. Unset, forwarded IPs are ignored and every learner shares the frontend
+ * server's rate-limit bucket.
+ */
+export const CLIENT_IP_SECRET: string | undefined = process.env.CLIENT_IP_SECRET || undefined;

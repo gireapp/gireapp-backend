@@ -30,19 +30,23 @@ export function isTokenStale(
   return issuedAtSeconds < Math.floor(passwordChangedAt.getTime() / 1000);
 }
 
+/** The session token from the cookie, or failing that a Bearer header. */
+export function sessionTokenOf(req: Request): string | undefined {
+  const cookieToken: unknown = req.cookies?.token;
+  if (typeof cookieToken === 'string' && cookieToken) return cookieToken;
+
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) return authHeader.split(' ')[1];
+
+  return undefined;
+}
+
 export const requireAuth = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  let token = req.cookies?.token;
-
-  if (!token) {
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-    }
-  }
+  const token = sessionTokenOf(req);
 
   if (!token) {
     res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
