@@ -2,6 +2,7 @@
   "name": "gireapp-backend-workspace",
   "version": "1.0.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "GIREAPP — Express Backend API & Shared Packages",
   "workspaces": [
     "backend",
